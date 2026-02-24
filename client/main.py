@@ -1,12 +1,15 @@
 import sys
 import os
 
+# 强制使用 PyQt5 兼容模式
+os.environ["PYQTGRAPH_QT_LIB"] = "PyQt5"
+
 # 确保项目根目录在 sys.path 中，以便可以导入 'client' 包
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(current_dir)
 sys.path.insert(0, root_dir)
 
-from PySide6.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication
 from client.ui.main_window import MainWindow
 
 def main():
@@ -22,7 +25,7 @@ def main():
     window = MainWindow()
     window.show()
 
-    sys.exit(app.exec())
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()

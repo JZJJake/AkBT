@@ -7,3 +7,5 @@ pypinyin
 requests
 uvicorn
 websockets
+PyQt5
+pyqtgraph

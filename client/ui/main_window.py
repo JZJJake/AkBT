@@ -1,7 +1,7 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLineEdit, QPushButton, QComboBox, QDateEdit,
                                QCompleter, QLabel, QFrame, QProgressBar, QMessageBox, QDockWidget)
-from PySide6.QtCore import Qt, QDate, QStringListModel, QTimer
+from PyQt5.QtCore import Qt, QDate, QStringListModel, QTimer
 import pyqtgraph as pg
 import pandas as pd
 import numpy as np

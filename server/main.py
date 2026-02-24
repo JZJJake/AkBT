@@ -12,19 +12,29 @@ import concurrent.futures
 import pandas as pd
 import logging
 from typing import List, Optional
+from contextlib import asynccontextmanager
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-
-# 存储任务结果 (简易内存存储)
+# 全局变量存储
+executor = None
 tasks = {}
 
-# 进程池 (Global)
-# Windows下需注意 spawn/fork，Linux下默认 fork。
-executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动时初始化进程池
+    # 防止 Windows 下的递归 spawn 问题 (spawn 会重新 import module，如果是全局变量会导致无限创建)
+    global executor
+    executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
+    logger.info("ProcessPoolExecutor initialized.")
+    yield
+    # 关闭时清理
+    executor.shutdown(wait=True)
+    logger.info("ProcessPoolExecutor shutdown.")
+
+app = FastAPI(lifespan=lifespan)
 
 class BacktestRequest(BaseModel):
     codes: List[str] # 改为列表支持多股

@@ -1,4 +1,4 @@
-from PySide6.QtCore import QThread, Signal, QObject
+from PyQt5.QtCore import QThread, pyqtSignal, QObject
 import json
 import time
 import requests
@@ -13,10 +13,10 @@ class BacktestWorker(QThread):
     后台工作线程，用于执行耗时的回测任务（网络请求与数据处理）。
     避免阻塞主 UI 线程。
     """
-    # 定义信号
-    progress_updated = Signal(int)
-    data_received = Signal(dict)
-    error_occurred = Signal(str)
+    # 定义信号 (PyQt5 使用 pyqtSignal)
+    progress_updated = pyqtSignal(int)
+    data_received = pyqtSignal(dict)
+    error_occurred = pyqtSignal(str)
 
     def __init__(self, codes: Union[str, List[str]], start_date, end_date, period, mode='remote'):
         """

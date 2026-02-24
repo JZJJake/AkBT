@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLabel,
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLabel,
                                QDockWidget, QTableWidget, QTableWidgetItem, QHeaderView)
-from PySide6.QtCore import Qt
+from PyQt5.QtCore import Qt
 import pandas as pd
 
 class StatsPanel(QDockWidget):
