@@ -1,5 +1,9 @@
-PySide6
-pyqtgraph
+akshare
+fastapi
+numpy
 pandas
 pandas-ta
-numpy
+pypinyin
+requests
+uvicorn
+websockets

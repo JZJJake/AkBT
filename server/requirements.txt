@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-pandas
-pandas-ta
-numpy
-websockets
-akshare
-pypinyin
