@@ -1,12 +1,15 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLineEdit, QPushButton, QComboBox, QDateEdit,
-                               QCompleter, QLabel, QFrame)
+                               QCompleter, QLabel, QFrame, QProgressBar)
 from PySide6.QtCore import Qt, QDate, QStringListModel
 import pyqtgraph as pg
 import pandas as pd
 import numpy as np
-from client.data.mock import generate_mock_data
+import json
+import io
+# from client.data.mock import generate_mock_data # Removed mock data import
 from client.ui.chart_items import CandlestickItem, DateAxis
+from client.api.worker import BacktestWorker
 
 # 模拟搜索数据字典 (代码, 简称, 拼音)
 STOCK_DICT = {
@@ -38,8 +41,11 @@ class MainWindow(QMainWindow):
         # 2. 创建图表显示区域
         self.create_charts()
 
-        # 初始化显示模拟数据
-        self.run_backtest()
+        # 3. 初始化工作线程引用
+        self.worker = None
+
+        # 初始默认运行一次 (可选)
+        # self.run_backtest()
 
     def create_toolbar(self):
         """创建顶部工具栏组件: 搜索框、周期切换、日期选择、运行按钮。"""
@@ -80,6 +86,13 @@ class MainWindow(QMainWindow):
         toolbar_layout.addWidget(self.start_date)
         toolbar_layout.addWidget(QLabel("结束:"))
         toolbar_layout.addWidget(self.end_date)
+
+        # 进度条
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedWidth(150)
+        toolbar_layout.addWidget(self.progress_bar)
 
         # 执行回测按钮
         self.run_btn = QPushButton("执行回测")
@@ -133,26 +146,75 @@ class MainWindow(QMainWindow):
         self.p_kdj.setXLink(self.p_main)
 
     def run_backtest(self):
-        """处理回测按钮点击: 生成/获取数据并刷新图表。"""
-        # 1. 获取输入参数
+        """处理回测按钮点击: 启动后台线程异步执行回测任务。"""
+        # 1. 禁用按钮，避免重复点击
+        self.run_btn.setEnabled(False)
+        self.progress_bar.setValue(0)
+
+        # 2. 获取输入参数
         ticker_text = self.search_input.text()
-        # 简单解析: 取第一个空格前的代码，默认为 000001
         code = ticker_text.split(' ')[0] if ticker_text else "000001"
+        start_date = self.start_date.date().toString("yyyy-MM-dd")
+        end_date = self.end_date.date().toString("yyyy-MM-dd")
+        period = self.period_combo.currentText()
 
-        # 2. 调用 Mock 数据生成器 (模拟 ~300 个交易日)
-        # 实际开发中此处将调用 S端 API
-        df = generate_mock_data(ticker=code, n_days=300)
+        # 3. 创建并启动工作线程
+        # 使用 remote 模式连接真实后端
+        self.worker = BacktestWorker(code, start_date, end_date, period, mode="remote")
 
-        # 3. 刷新 UI
-        self.update_charts(df)
+        # 连接信号
+        self.worker.progress_updated.connect(self.update_progress)
+        self.worker.data_received.connect(self.handle_backtest_result)
+        self.worker.error_occurred.connect(self.handle_backtest_error)
+        self.worker.finished.connect(self.thread_finished) # 清理
 
-    def update_charts(self, df):
+        # 启动线程
+        self.worker.start()
+
+    def update_progress(self, val):
+        """更新进度条"""
+        self.progress_bar.setValue(val)
+
+    def handle_backtest_result(self, result):
+        """处理回测线程返回的结果 (JSON 格式)"""
+        # 1. 解析 bars 数据 (DataFrame JSON)
+        try:
+            bars_json = result.get("bars")
+            df = pd.read_json(io.StringIO(bars_json), orient='index')
+            # 确保索引为 DatetimeIndex
+            df.index = pd.to_datetime(df.index)
+            df.sort_index(inplace=True)
+
+            # 2. 刷新图表
+            trades = result.get("trades", [])
+            self.update_charts(df, trades)
+
+            # 3. 处理资金曲线 (后续实现)
+            equity_curve = result.get("equity_curve", [])
+
+        except Exception as e:
+            self.handle_backtest_error(f"Failed to parse result: {str(e)}")
+
+    def handle_backtest_error(self, msg):
+        """显示错误信息"""
+        print(f"Backtest Error: {msg}")
+        self.run_btn.setEnabled(True)
+
+    def thread_finished(self):
+        """线程结束清理"""
+        self.run_btn.setEnabled(True)
+        self.worker = None
+
+    def update_charts(self, df, trades=None):
         """根据 DataFrame 数据绘制所有图表。"""
         # 清空旧数据
         self.p_main.clear()
         self.p_vol.clear()
         self.p_macd.clear()
         self.p_kdj.clear()
+
+        if df.empty:
+            return
 
         # 更新日期轴的日期映射列表
         dates = df.index.tolist()
@@ -171,6 +233,10 @@ class MainWindow(QMainWindow):
 
         candlestick = CandlestickItem(ohlc_data)
         self.p_main.addItem(candlestick)
+
+        # --- 绘制买卖点 (Trades) ---
+        if trades:
+            self.plot_trades(trades, df)
 
         # --- 绘制成交量 ---
         # 根据涨跌设置颜色 (红/绿)
@@ -206,5 +272,38 @@ class MainWindow(QMainWindow):
         self.p_kdj.plot(x_indices, df['D'], pen='y', name='D')
         self.p_kdj.plot(x_indices, df['J'], pen='m', name='J')
 
-        # 自动调整主图视图范围 (可选)
-        # self.p_main.autoRange()
+    def plot_trades(self, trades, df):
+        """在主图上绘制买卖点标记 (箭头)"""
+        # trades 格式: [{"action": "buy", "date": "2023-01-01", "price": 100}, ...]
+        # 需要找到日期对应的索引
+
+        for trade in trades:
+            action = trade.get('action') # "buy" or "sell"
+            date_str = trade.get('date') # "YYYY-MM-DD"
+            price = trade.get('price')
+
+            # 查找日期索引
+            try:
+                ts = pd.Timestamp(date_str)
+                # 使用 searchsorted 查找最接近的索引，或者用 get_loc 如果索引完全匹配
+                # 这里假设 trades 里的 date 是准确存在的交易日
+                if ts in df.index:
+                    idx = df.index.get_loc(ts)
+
+                    if action == 'buy':
+                        # 向上箭头 (Buy) - 红色 (或按照惯例 Buy通常在下方指向上)
+                        # PyQtGraph ArrowItem options: tipAngle, baseAngle, headLen, tailLen, tailWidth, pen, brush
+                        # pos 是数据坐标 (x_index, y_price)
+                        # Arrow pointing UP means base is down, tip is up.
+                        # To point to a point (idx, price) from BELOW, we need the arrow to point UP.
+                        # angle=90 points UP.
+                        arrow = pg.ArrowItem(pos=(idx, price), angle=90, tipAngle=30, headLen=10, tailLen=10, tailWidth=5, pen={'color': 'r', 'width': 1}, brush='r')
+                        self.p_main.addItem(arrow)
+
+                    elif action == 'sell':
+                        # 向下箭头 (Sell) - 绿色 (从上方指向下方点)
+                        # angle=-90 points DOWN.
+                        arrow = pg.ArrowItem(pos=(idx, price), angle=-90, tipAngle=30, headLen=10, tailLen=10, tailWidth=5, pen={'color': 'g', 'width': 1}, brush='g')
+                        self.p_main.addItem(arrow)
+            except Exception as e:
+                print(f"Error plotting trade {trade}: {e}")
