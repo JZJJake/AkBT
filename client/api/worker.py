@@ -6,6 +6,7 @@ import asyncio
 import websockets
 import pandas as pd
 import io
+from typing import List, Union
 
 class BacktestWorker(QThread):
     """
@@ -13,26 +14,28 @@ class BacktestWorker(QThread):
     避免阻塞主 UI 线程。
     """
     # 定义信号
-    # progress_updated: 发送当前进度百分比 (int)
     progress_updated = Signal(int)
-    # data_received: 发送回测结果 (dict: {bars: df_json, trades: list, equity: list})
     data_received = Signal(dict)
-    # error_occurred: 发送错误信息 (str)
     error_occurred = Signal(str)
 
-    def __init__(self, code, start_date, end_date, period, mode='remote'):
+    def __init__(self, codes: Union[str, List[str]], start_date, end_date, period, mode='remote'):
         """
         初始化工作线程。
 
         参数:
-            code (str): 股票代码
+            codes (str or List[str]): 股票代码列表
             start_date (str): 开始日期
             end_date (str): 结束日期
             period (str): 周期
             mode (str): 'remote' (连接服务器)
         """
         super().__init__()
-        self.code = code
+        # Ensure codes is list
+        if isinstance(codes, str):
+            self.codes = [codes]
+        else:
+            self.codes = codes
+
         self.start_date = start_date
         self.end_date = end_date
         self.period = period
@@ -43,7 +46,6 @@ class BacktestWorker(QThread):
     def run(self):
         """线程入口点"""
         try:
-            # 默认且唯一的模式是 remote
             self.run_remote_backtest()
         except Exception as e:
             self.error_occurred.emit(str(e))
@@ -53,7 +55,7 @@ class BacktestWorker(QThread):
         # 1. 提交任务 (HTTP POST)
         url = f"{self.api_base}/api/backtest/run"
         payload = {
-            "code": self.code,
+            "codes": self.codes,
             "start_date": self.start_date,
             "end_date": self.end_date,
             "period": self.period
@@ -73,10 +75,6 @@ class BacktestWorker(QThread):
         # 2. 连接 WebSocket (WS)
         ws_url = f"{self.ws_base}/ws/backtest/{task_id}"
 
-        # 由于 QThread.run 是同步的，我们需要运行 asyncio loop 来使用 websockets 库
-        # 或者使用阻塞式的 websocket client (如 `websocket-client` 库)，
-        # 但为了避免引入新依赖，我们可以用 asyncio.run()
-
         asyncio.run(self.connect_websocket(ws_url))
 
     async def connect_websocket(self, url):
@@ -85,17 +83,14 @@ class BacktestWorker(QThread):
                 async for message in websocket:
                     data = json.loads(message)
 
-                    # 处理错误
                     if "error" in data:
                         self.error_occurred.emit(data["error"])
                         break
 
-                    # 处理进度
                     if "progress" in data:
                         progress = data["progress"]
                         self.progress_updated.emit(progress)
 
-                    # 处理结果
                     if "result" in data:
                         result = data["result"]
                         self.data_received.emit(result)
