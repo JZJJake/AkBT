@@ -2,9 +2,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import asyncio
 import uuid
-from server.data.mock import generate_mock_data
+# from server.data.mock import generate_mock_data # Removed mock data import
+from server.data.provider import get_stock_data
 from server.engine import BacktestEngine
 import json
+import os
 
 app = FastAPI()
 
@@ -40,19 +42,19 @@ async def websocket_endpoint(websocket: WebSocket, task_id: str):
         if not req:
              req = {"code": "000001", "start_date": "2023-01-01", "end_date": "2024-01-01", "period": "D"}
 
-        # 1. 生成数据 (Mock)
-        await websocket.send_json({"progress": 5, "message": "Generating data..."})
+        # 1. 获取数据 (优先查库，缺失则 AkShare 更新)
+        await websocket.send_json({"progress": 5, "message": "Fetching data..."})
 
-        # 生成数据
         code = req.get('code', '000001')
         start_date = req.get('start_date', '2023-01-01')
         end_date = req.get('end_date', '2024-01-01')
 
-        # 同步生成 Mock 数据
-        df = generate_mock_data(ticker=code, start_date=start_date, end_date=end_date)
+        # 调用数据提供层
+        # get_stock_data 内部处理了数据库查询、过期检查、AkShare调用及Mock降级
+        df = get_stock_data(code, start_date, end_date)
 
         if df.empty:
-            await websocket.send_json({"error": "No data found"})
+            await websocket.send_json({"error": f"No data found for {code} between {start_date} and {end_date}"})
             await websocket.close()
             return
 
@@ -90,3 +92,11 @@ async def websocket_endpoint(websocket: WebSocket, task_id: str):
             await websocket.close()
         except:
             pass
+
+if __name__ == "__main__":
+    # 仅用于本地直接运行
+    import uvicorn
+    # 默认开启 Mock Fallback 以便在沙箱中运行
+    if "USE_MOCK_FALLBACK" not in os.environ:
+         os.environ["USE_MOCK_FALLBACK"] = "True"
+    uvicorn.run(app, host="127.0.0.1", port=8000)
