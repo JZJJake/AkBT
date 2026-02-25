@@ -1,11 +1,7 @@
 akshare
-fastapi
-numpy
 pandas
 pandas-ta
-pypinyin
-requests
+fastapi
 uvicorn
-websockets
-PyQt5
-pyqtgraph
+jinja2
+requests

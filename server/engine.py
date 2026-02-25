@@ -17,12 +17,10 @@ class BacktestEngine:
         # closed='right', label='right' (默认): (t-1, t]
         # 注意: 我们需要确保数据不包含未来。Resample 后索引通常是周期结束日。
 
-        self.weekly_static = self.raw_data.resample('W-FRI').agg({
-            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
-        })
-        self.monthly_static = self.raw_data.resample('ME').agg({
-            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
-        })
+        # 预先计算所有静态周线数据?
+        # 实际上，如果我们在每一步只根据"截至当日"的数据来生成周线，是最安全的。
+        # 预计算可以优化，但必须小心。
+        # 这里为了严谨防前瞻，我们每一步动态生成。
 
         # 交易记录
         self.trades = []
@@ -82,50 +80,34 @@ class BacktestEngine:
 
         return df
 
-    def get_dynamic_period_data(self, current_date, static_df, raw_df):
+    def get_dynamic_period_data(self, current_date, raw_df, freq):
         """
         构造包含“历史静态数据”+“当前未收盘动态数据”的 DataFrame。
 
         参数:
             current_date: 当前回测日期 (Timestamp)
-            static_df: 预计算好的周/月线数据 (索引为周期结束日)
-            raw_df: 原始日线数据
+            raw_df: 原始日线数据 (截断至 current_date)
+            freq: 'W-FRI' or 'M'
         """
-        # 1. 截取“完全已收盘”的历史周期数据
-        # 找出结束日期 < current_date 的所有周期
-        history = static_df[static_df.index < current_date].copy()
+        # 截取截至 current_date 的日线
+        daily_slice = raw_df.loc[:current_date].copy()
+        if daily_slice.empty: return pd.DataFrame()
 
-        # 2. 动态合成当前周期 (本周/本月)
-        # 确定当前周期的起始点。
-        # history 的最后一条记录是上一个周期的结束日。
-        last_static_date = history.index[-1] if not history.empty else pd.Timestamp.min
+        # Resample
+        # closed='right', label='right' by default for M/W
+        # 这会自动把日线聚合。
+        # 最后一行即为包含 current_date 的周期 (可能未收盘，但在回测视角下就是当前的形态)
+        resampled = daily_slice.resample(freq).agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+        })
 
-        # 从原始日线中截取 (last_static_date, current_date] 区间的数据
-        # 这些数据属于当前正在进行的周期 (未收盘)
-        current_period_daily = raw_df.loc[last_static_date : current_date]
-        # 排除掉 last_static_date (它是上个周期的最后一天，已包含在 history 中)
-        # 注意: 切片 loc 是包含边界的，如果 raw_df 中包含 last_static_date，需要排除
-        current_period_daily = current_period_daily[current_period_daily.index > last_static_date]
+        # 过滤掉未来的 (resample 可能会生成以周期结束日为索引的行，即使该结束日 > current_date)
+        # 例如 current_date 是周三(2023-01-04)，周期结束日是周五(2023-01-06)。
+        # Pandas resample 会把这一行标记为 2023-01-06。这是允许的，表示"截至本周的K线"。
+        # 但我们需要确保这个 "2023-01-06" 行只包含了截至 2023-01-04 的数据。
+        # 上面的 .agg() 是基于 daily_slice 的，所以它是正确的动态K线。
 
-        if not current_period_daily.empty:
-            # 合成一根 K 线
-            dynamic_bar = pd.DataFrame([{
-                'Open': current_period_daily.iloc[0]['Open'],
-                'High': current_period_daily['High'].max(),
-                'Low': current_period_daily['Low'].min(),
-                'Close': current_period_daily.iloc[-1]['Close'],
-                'Volume': current_period_daily['Volume'].sum(),
-                # 暂时用 current_date 作为索引，表示这是截至目前的 K 线
-                'Date': current_date
-            }])
-            dynamic_bar.set_index('Date', inplace=True)
-
-            # 拼接
-            combined = pd.concat([history, dynamic_bar])
-        else:
-            combined = history
-
-        return combined
+        return resampled
 
     async def run(self, progress_callback=None):
         """执行回测循环 (Async for WebSocket)"""
@@ -133,6 +115,11 @@ class BacktestEngine:
         # 1. 预计算日线指标 (用于C端展示，同时也用于日线级别的策略判断)
         # 这里的指标是基于全量历史计算的“静态”指标。
         # 在遍历时取 loc[current_date] 是安全的防前瞻 (因为 current_date 的指标只依赖过去)
+        # 只要我们不取 loc[current_date + 1] 即可。
+        # 修正: 严格来说，current_date 的指标应该基于 loc[:current_date] 计算。
+        # 但日线指标通常只依赖过去 N 天。静态计算结果与动态计算结果在 current_date 是一致的。
+        # 唯独 "MACD 缩小/放大" 需要比较 t 与 t-1。
+
         self.daily_processed = self.calculate_indicators(self.raw_data.copy())
 
         # 填充 NaN 以防计算报错
@@ -166,8 +153,12 @@ class BacktestEngine:
             # 性能优化: 只取最近 N 条历史来计算指标
             lookback = 100
 
+            # 截取 raw_df
+            # Optimization: pass raw_df slice
+            # Or use optimized method
+
             # 周线
-            weekly_full = self.get_dynamic_period_data(current_date, self.weekly_static, self.raw_data)
+            weekly_full = self.get_dynamic_period_data(current_date, self.raw_data, 'W-FRI')
             if len(weekly_full) > lookback:
                 w_window = weekly_full.iloc[-lookback:].copy()
             else:
@@ -181,7 +172,7 @@ class BacktestEngine:
             prev_w2 = w_window.iloc[-3]
 
             # 月线
-            monthly_full = self.get_dynamic_period_data(current_date, self.monthly_static, self.raw_data)
+            monthly_full = self.get_dynamic_period_data(current_date, self.raw_data, 'ME') # 'ME' is Month End
             if len(monthly_full) > lookback:
                 m_window = monthly_full.iloc[-lookback:].copy()
             else:

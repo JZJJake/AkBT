@@ -1,0 +1,172 @@
+let chartInstance = null;
+
+async function loadData() {
+    const code = document.getElementById('stockCode').value;
+    if (!code) return alert("请输入股票代码");
+
+    try {
+        const resp = await fetch(`/data/${code}`);
+        if (!resp.ok) throw new Error("Fetch failed");
+
+        const json = await resp.json();
+        if (json.error) return alert(json.error);
+
+        renderChart(json.data, json.code);
+    } catch (e) {
+        console.error(e);
+        alert("加载数据失败: " + e.message);
+    }
+}
+
+async function runBacktest() {
+    const code = document.getElementById('stockCode').value;
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+    const cash = document.getElementById('initialCash').value;
+
+    if (!code || !start) return alert("请输入完整参数");
+
+    const resultBox = document.getElementById('backtestResult');
+    resultBox.innerHTML = "正在回测...";
+
+    try {
+        const resp = await fetch('/backtest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                code: code,
+                start_date: start, // YYYY-MM-DD
+                end_date: end ? end : null,
+                initial_cash: parseFloat(cash)
+            })
+        });
+
+        const json = await resp.json();
+        if (json.error) {
+            resultBox.innerHTML = "回测失败: " + json.error;
+            return;
+        }
+
+        // 显示结果
+        const equity = json.equity_curve;
+        const finalValue = equity[equity.length - 1].value;
+        const returnRate = ((finalValue - parseFloat(cash)) / parseFloat(cash) * 100).toFixed(2);
+
+        let html = `<h3>回测结果</h3>`;
+        html += `<p>最终权益: ${finalValue.toFixed(2)}</p>`;
+        html += `<p>收益率: ${returnRate}%</p>`;
+        html += `<p>交易次数: ${json.trades.length}</p>`;
+        html += `<h4>最近交易:</h4><ul>`;
+
+        json.trades.slice(-5).forEach(t => {
+            html += `<li>${t.date} ${t.action} @ ${t.price} (${t.reason || ''})</li>`;
+        });
+        html += `</ul>`;
+
+        resultBox.innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+        resultBox.innerHTML = "回测出错: " + e.message;
+    }
+}
+
+function renderChart(data, code) {
+    if (chartInstance) {
+        chartInstance.dispose();
+    }
+    chartInstance = echarts.init(document.getElementById('chartContainer'));
+
+    // Process Data
+    const dates = data.map(item => item.Date);
+    // Open, Close, Low, High (ECharts Candlestick: [open, close, low, high])
+    // But data is: {Open, Close, Low, High, Volume, ...}
+    const klineData = data.map(item => [item.Open, item.Close, item.Low, item.High]);
+    const volumes = data.map((item, idx) => [idx, item.Volume, item.Open > item.Close ? 1 : -1]);
+
+    // Indicators (Assuming server calculates them, else we need JS logic)
+    // Server should provide: MACD_DIF, MACD_DEA, MACD_HIST, K, D, J
+    const macdDif = data.map(item => item.MACD_DIF || 0);
+    const macdDea = data.map(item => item.MACD_DEA || 0);
+    const macdHist = data.map(item => item.MACD_HIST || 0);
+
+    const kVal = data.map(item => item.K || 0);
+    const dVal = data.map(item => item.D || 0);
+    const jVal = data.map(item => item.J || 0);
+
+    const option = {
+        title: { text: code + ' 日线图', left: 'center', textStyle: { color: '#fff' } },
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'cross' }
+        },
+        axisPointer: { link: { xAxisIndex: 'all' } },
+        grid: [
+            { left: '10%', right: '5%', height: '40%', top: '10%' }, // KLine
+            { left: '10%', right: '5%', height: '10%', top: '50%' }, // Vol
+            { left: '10%', right: '5%', height: '15%', top: '60%' }, // MACD
+            { left: '10%', right: '5%', height: '15%', top: '75%' }  // KDJ
+        ],
+        xAxis: [
+            { type: 'category', data: dates, gridIndex: 0, axisLine: { lineStyle: { color: '#8392A5' } } },
+            { type: 'category', data: dates, gridIndex: 1, show: false },
+            { type: 'category', data: dates, gridIndex: 2, show: false },
+            { type: 'category', data: dates, gridIndex: 3, show: false }
+        ],
+        yAxis: [
+            { scale: true, gridIndex: 0, splitLine: { show: false }, axisLine: { lineStyle: { color: '#8392A5' } } },
+            { scale: true, gridIndex: 1, splitLine: { show: false }, axisLabel: { show: false } },
+            { scale: true, gridIndex: 2, splitLine: { show: false }, axisLabel: { show: false } },
+            { scale: true, gridIndex: 3, splitLine: { show: false }, axisLabel: { show: false } }
+        ],
+        dataZoom: [
+            { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100 },
+            { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100, bottom: 10 }
+        ],
+        series: [
+            // KLine
+            {
+                type: 'candlestick',
+                name: '日线',
+                data: klineData,
+                xAxisIndex: 0,
+                yAxisIndex: 0,
+                itemStyle: {
+                    color: '#FD1050',
+                    color0: '#0CF49B',
+                    borderColor: '#FD1050',
+                    borderColor0: '#0CF49B'
+                }
+            },
+            // Volume
+            {
+                type: 'bar',
+                name: 'Volume',
+                data: volumes.map(v => v[1]), // Just volume
+                xAxisIndex: 1,
+                yAxisIndex: 1,
+                itemStyle: {
+                    color: (params) => {
+                        return klineData[params.dataIndex][1] > klineData[params.dataIndex][0] ? '#FD1050' : '#0CF49B';
+                    }
+                }
+            },
+            // MACD
+            { type: 'line', name: 'DIF', data: macdDif, xAxisIndex: 2, yAxisIndex: 2, symbol: 'none', lineStyle: { width: 1 } },
+            { type: 'line', name: 'DEA', data: macdDea, xAxisIndex: 2, yAxisIndex: 2, symbol: 'none', lineStyle: { width: 1 } },
+            {
+                type: 'bar', name: 'MACD', data: macdHist, xAxisIndex: 2, yAxisIndex: 2,
+                itemStyle: {
+                    color: (params) => params.value > 0 ? '#FD1050' : '#0CF49B'
+                }
+            },
+            // KDJ
+            { type: 'line', name: 'K', data: kVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1 } },
+            { type: 'line', name: 'D', data: dVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1 } },
+            { type: 'line', name: 'J', data: jVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1 } }
+        ]
+    };
+
+    chartInstance.setOption(option);
+    window.onresize = chartInstance.resize;
+}
