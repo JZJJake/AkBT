@@ -59,21 +59,27 @@ def fetch_stock_daily(code, start_date='20200101', end_date=None, adjust='qfq'):
         print(f"Error fetching data for {code}: {e}")
         # Fallback to Mock Data
         print("Returning mock data due to error.")
-        dates = pd.date_range(start_date, end_date if end_date else datetime.datetime.now(), freq='B')
+        # Ensure we return valid data structure even on error
+        dates = pd.date_range(start=start_date, end=end_date if end_date else datetime.datetime.now(), freq='B')
         if len(dates) == 0: return pd.DataFrame()
 
         import numpy as np
+        # Generate random walk
+        close = np.random.normal(0, 1, len(dates)).cumsum() + 100
+        # Ensure positive
+        close = np.abs(close) + 10
+
         df = pd.DataFrame({
-            'Open': np.random.uniform(10, 20, len(dates)),
-            'High': np.random.uniform(10, 20, len(dates)),
-            'Low': np.random.uniform(10, 20, len(dates)),
-            'Close': np.random.uniform(10, 20, len(dates)),
-            'Volume': np.random.uniform(1000, 5000, len(dates))
+            'Open': close * (1 + np.random.normal(0, 0.01, len(dates))),
+            'High': close * (1 + abs(np.random.normal(0, 0.02, len(dates)))),
+            'Low': close * (1 - abs(np.random.normal(0, 0.02, len(dates)))),
+            'Close': close,
+            'Volume': np.abs(np.random.normal(10000, 5000, len(dates)))
         }, index=dates)
         df.index.name = 'Date'
         return df
 
 if __name__ == "__main__":
     # Test
-    df = fetch_daily_data("000001", "20230101", "20230201")
+    df = fetch_stock_daily("000001", "20230101", "20230201")
     print(df.head())

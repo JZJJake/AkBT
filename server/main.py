@@ -48,9 +48,25 @@ def get_stock_data_api(code: str):
 
     # 转为 JSON (date ISO format)
     # Reset index to include Date column
+    # Ensure index name is Date
+    if df.index.name != 'Date':
+        df.index.name = 'Date'
+
     df_reset = df.reset_index()
+
+    # Check if Date column exists after reset
+    if 'Date' not in df_reset.columns:
+         # Fallback: maybe index was unnamed, so it became 'index'
+         if 'index' in df_reset.columns:
+             df_reset.rename(columns={'index': 'Date'}, inplace=True)
+
     # Convert timestamp to string
-    df_reset['Date'] = df_reset['Date'].dt.strftime('%Y-%m-%d')
+    if 'Date' in df_reset.columns:
+        try:
+            df_reset['Date'] = df_reset['Date'].dt.strftime('%Y-%m-%d')
+        except Exception:
+            # Maybe already string?
+            df_reset['Date'] = df_reset['Date'].astype(str)
 
     records = df_reset.to_dict(orient='records')
     return {"code": code, "data": records}

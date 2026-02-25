@@ -11,6 +11,18 @@ async function loadData() {
         const json = await resp.json();
         if (json.error) return alert(json.error);
 
+        if (!json.data || json.data.length === 0) {
+            return alert("未获取到数据");
+        }
+
+        // Debug
+        console.log("Received data records:", json.data.length);
+        console.log("First record:", json.data[0]);
+
+        if (!json.data[0].Date) {
+            return alert("数据格式错误: 缺少 Date 字段");
+        }
+
         renderChart(json.data, json.code);
     } catch (e) {
         console.error(e);
