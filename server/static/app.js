@@ -156,6 +156,47 @@ async function runBacktest() {
     }
 }
 
+async function runScreener() {
+    const resultBox = document.getElementById('screenerResult');
+    resultBox.innerHTML = "正在选股，可能需要一些时间...";
+
+    try {
+        const resp = await fetch('/screener', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({}) // Default params
+        });
+
+        const json = await resp.json();
+
+        if (json.results && json.results.length > 0) {
+            let html = `<h3>选股结果 (${json.count})</h3>`;
+            html += `<div style="max-height: 300px; overflow-y: auto;">`;
+
+            json.results.forEach(stock => {
+                html += `<div class="stock-list-item" onclick="selectStock('${stock.code}')">`;
+                html += `<strong>${stock.code}</strong>`;
+                html += `<span>${stock.date}</span>`;
+                html += `<span>¥${stock.price.toFixed(2)}</span>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+            resultBox.innerHTML = html;
+        } else {
+            resultBox.innerHTML = "<h3>选股结果</h3><p>未发现符合买入条件的股票。</p>";
+        }
+
+    } catch (e) {
+        console.error(e);
+        resultBox.innerHTML = "选股出错: " + e.message;
+    }
+}
+
+function selectStock(code) {
+    document.getElementById('stockCode').value = code;
+    loadData();
+}
+
 function renderChart(data, code, period) {
     if (chartInstance) {
         chartInstance.dispose();

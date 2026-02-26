@@ -155,6 +155,13 @@ input:focus {
     background-color: var(--hover-color);
 }
 
+.screener-btn {
+    background-color: #ff9800; /* Orange for screener */
+}
+.screener-btn:hover {
+    background-color: #f57c00;
+}
+
 .result-box {
     margin-top: 20px;
     padding: 15px;
@@ -164,6 +171,21 @@ input:focus {
     min-height: 100px;
     font-size: 0.9em;
     color: #333;
+}
+
+/* List styles for screener results */
+.stock-list-item {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+}
+.stock-list-item:hover {
+    background-color: #f0f0f0;
+}
+.stock-list-item strong {
+    color: var(--primary-color);
 }
 
 #chartContainer {
