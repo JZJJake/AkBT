@@ -4,8 +4,9 @@ import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from server.data.db_manager import DatabaseManager
-# Replace AkShare with TDX
-from server.data.tdx_fetcher import fetch_stock_daily_tdx, fetch_all_stock_codes_tdx
+# TDX for Bars, Sina for List
+from server.data.tdx_fetcher import fetch_stock_daily_tdx
+from server.data.stock_list_provider import fetch_stock_list
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -85,36 +86,27 @@ class DataProvider:
 
     async def sync_all_stocks_task(self):
         """
-        后台任务：同步全市场数据 (使用 TDX 高速接口)
+        后台任务：同步全市场数据 (使用 Sina 获取列表，TDX 获取数据)
         """
         if self._sync_status["status"] == "running":
             return
 
-        self._sync_status = {"status": "running", "progress": 0, "total": 0, "message": "Fetching stock list (TDX)..."}
+        self._sync_status = {"status": "running", "progress": 0, "total": 0, "message": "Fetching stock list (Sina)..."}
 
         try:
-            # 1. Get List via TDX
+            # 1. Get List via Sina (Robust)
             loop = asyncio.get_event_loop()
-            codes = await loop.run_in_executor(None, fetch_all_stock_codes_tdx)
+            codes = await loop.run_in_executor(None, fetch_stock_list)
 
             if not codes:
-                raise Exception("Failed to fetch stock list from TDX.")
+                raise Exception("Failed to fetch stock list from Sina.")
 
             self._sync_status["total"] = len(codes)
+            logger.info(f"Starting sync for {len(codes)} stocks...")
 
             # 2. Iterate
-            # TDX is fast, but we still use concurrency.
-            # Connection pooling might be needed? TdxFetcher manages single connection.
-            # Multithreading on single TdxHq_API instance might be thread-unsafe or blocked.
-            # Best practice: Use a semaphore to limit concurrency, and maybe create new instances if needed?
-            # Or just sequential is fast enough?
-            # Sequential TDX: ~20ms per stock -> 5000 stocks = 100s. Very fast.
-            # Let's try concurrency=10 with the shared instance (pytdx is blocking socket).
-            # Actually, standard pytdx client is synchronous.
-            # We can use ThreadPoolExecutor to run multiple clients?
-            # For simplicity and stability, let's keep concurrency low (e.g. 4) or sequential if it's fast enough.
-            # 5000 * 0.05s = 250s = 4 min. Acceptable.
-
+            # We use concurrency with Semaphore to limit active tasks,
+            # even though TDX is locked, to avoid flooding the event loop.
             sem = asyncio.Semaphore(4)
 
             async def bound_fetch(code):
@@ -134,10 +126,9 @@ class DataProvider:
                 processed += len(batch)
                 self._sync_status["progress"] = int((processed / len(codes)) * 100)
 
-                # No sleep needed for TDX usually
-
             self._sync_status["status"] = "completed"
             self._sync_status["message"] = f"Sync completed. Processed {processed} stocks."
+            logger.info("Full market sync completed successfully.")
 
         except Exception as e:
             self._sync_status["status"] = "error"
