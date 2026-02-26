@@ -13,6 +13,30 @@ USER_AGENTS = [
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
 ]
 
+def fetch_all_stock_codes():
+    """
+    获取 A 股全市场股票代码。
+    返回: list of str (e.g. ["000001", "600519", ...])
+    """
+    try:
+        print("Fetching full A-share list from AkShare...")
+        # ak.stock_zh_a_spot_em 返回实时行情，包含所有代码
+        df = ak.stock_zh_a_spot_em()
+        if df is not None and not df.empty:
+            # 字段: 序号, 代码, 名称, ...
+            codes = df['代码'].astype(str).tolist()
+            print(f"Fetched {len(codes)} stock codes.")
+            return codes
+    except Exception as e:
+        print(f"Error fetching stock list: {e}")
+
+    # Fallback list if API fails
+    return [
+        "000001", "600519", "300059", "601318", "002594",
+        "601138", "301301", "600030", "000858", "600036",
+        "601012", "000333", "603259", "300750"
+    ]
+
 def fetch_stock_daily(code, start_date='20200101', end_date=None, adjust='qfq'):
     """
     获取 A 股日线数据 (前复权)。
@@ -52,9 +76,6 @@ def _get_random_headers():
     return {'User-Agent': random.choice(USER_AGENTS)}
 
 def _fetch_eastmoney(code, start, end, adjust):
-    # akshare uses requests internally, but doesn't easily expose headers for this function.
-    # However, we can monkey-patch or just rely on akshare's updates.
-    # For now, just call it.
     try:
         df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start, end_date=end, adjust=adjust)
         return df
@@ -62,7 +83,6 @@ def _fetch_eastmoney(code, start, end, adjust):
         raise e
 
 def _fetch_sina(code, start, end, adjust):
-    # Sina symbol: sh600000 / sz000001
     symbol = f"sh{code}" if code.startswith(('6', '5', '9')) else f"sz{code}"
     df = ak.stock_zh_a_daily(symbol=symbol, start_date=start, end_date=end, adjust=adjust)
     return df
@@ -76,10 +96,6 @@ def _process_data(df):
     """
     标准化列名并处理停牌
     """
-    # 统一列名映射
-    # EastMoney: 日期, 开盘, 收盘, 最高, 最低, 成交量
-    # Sina/Tencent: date, open, close, high, low, volume (need verify)
-
     col_map = {
         '日期': 'Date', 'date': 'Date',
         '开盘': 'Open', 'open': 'Open',
@@ -91,23 +107,19 @@ def _process_data(df):
     df.rename(columns=col_map, inplace=True)
 
     if 'Date' not in df.columns:
-        # Check index
         if isinstance(df.index, pd.DatetimeIndex):
             df.index.name = 'Date'
             df.reset_index(inplace=True)
         else:
-            return pd.DataFrame() # Unknown format
+            return pd.DataFrame()
 
     df['Date'] = pd.to_datetime(df['Date'])
     df.set_index('Date', inplace=True)
 
-    # Filter columns
     cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     df = df[cols]
 
     # Do NOT fill gaps. Return actual trading days only.
-    # User requirement: "不应该计算交易日，不应该显示在K线和其他指标上"
-
     df.dropna(subset=['Close'], inplace=True)
     df.index.name = 'Date'
     return df
@@ -131,5 +143,4 @@ def _generate_mock_data(start_date, end_date):
     return df
 
 if __name__ == "__main__":
-    df = fetch_stock_daily("000001", "20230101", "20230201")
-    print(df.head())
+    fetch_all_stock_codes()

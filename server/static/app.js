@@ -1,5 +1,6 @@
 let chartInstance = null;
 let currentPeriod = 'daily'; // Default period
+let syncInterval = null;
 
 // Sidebar Resize Logic
 const sidebar = document.getElementById('sidebar');
@@ -156,9 +157,47 @@ async function runBacktest() {
     }
 }
 
+async function syncData() {
+    const progressDiv = document.getElementById('syncProgress');
+    const bar = document.getElementById('syncBar');
+    const text = document.getElementById('syncText');
+
+    progressDiv.style.display = 'block';
+    text.innerText = "Starting Sync...";
+
+    try {
+        await fetch('/sync_data', { method: 'POST' });
+
+        // Start polling
+        if (syncInterval) clearInterval(syncInterval);
+        syncInterval = setInterval(async () => {
+            const resp = await fetch('/sync_status');
+            const status = await resp.json();
+
+            bar.style.width = status.progress + '%';
+            text.innerText = `${status.message} (${status.progress}%)`;
+
+            if (status.status === 'completed' || status.status === 'error') {
+                clearInterval(syncInterval);
+                if (status.status === 'completed') {
+                    alert("数据同步完成！");
+                    text.innerText = "Completed";
+                } else {
+                    alert("同步出错: " + status.message);
+                }
+                setTimeout(() => { progressDiv.style.display = 'none'; }, 3000);
+            }
+        }, 1000);
+
+    } catch (e) {
+        alert("同步请求失败: " + e.message);
+        progressDiv.style.display = 'none';
+    }
+}
+
 async function runScreener() {
     const resultBox = document.getElementById('screenerResult');
-    resultBox.innerHTML = "正在选股，可能需要一些时间...";
+    resultBox.innerHTML = "正在选股，可能需要一些时间（基于本地数据）...";
 
     try {
         const resp = await fetch('/screener', {

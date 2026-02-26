@@ -8,8 +8,9 @@ import pandas as pd
 import json
 import os
 import datetime
-from .data.provider import get_stock_data
+from .data.provider import get_stock_data, trigger_sync, get_sync_progress, provider
 from .engine import BacktestEngine
+from .data.akshare_fetcher import fetch_all_stock_codes
 
 app = FastAPI()
 
@@ -31,81 +32,41 @@ class ScreenerRequest(BaseModel):
     target_date: Optional[str] = None
 
 def resample_data(df: pd.DataFrame, period: str) -> pd.DataFrame:
-    """
-    Resample daily data to specified period.
-    period: 'weekly', 'monthly'
-    """
     if df.empty: return df
-
-    # Ensure index is DatetimeIndex
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
-    freq_map = {
-        'weekly': 'W-FRI',
-        'monthly': 'ME'
-    }
+    freq_map = {'weekly': 'W-FRI', 'monthly': 'ME'}
+    if period not in freq_map: return df
 
-    if period not in freq_map:
-        return df # Return daily if unknown
-
-    freq = freq_map[period]
-
-    # Resample Logic
-    resampled = df.resample(freq).agg({
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last',
-        'Volume': 'sum'
+    resampled = df.resample(freq_map[period]).agg({
+        'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
     })
-
-    # Drop empty periods (e.g. holidays causing empty weeks)
     resampled.dropna(subset=['Close'], inplace=True)
-
-    # Set index name
     resampled.index.name = 'Date'
-
     return resampled
 
 @app.get("/data/{code}")
 def get_stock_data_api(code: str, period: str = Query('daily', regex='^(daily|weekly|monthly)$')):
-    # 获取数据并返回 JSON (默认从 2020-01-01 开始)
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
     start_date = '2020-01-01'
 
     df = get_stock_data(code, start_date=start_date, end_date=end_date)
-    if df.empty:
-        return {"error": "No data found"}
+    if df.empty: return {"error": "No data found"}
 
-    # Resample if needed
-    if period != 'daily':
-        df = resample_data(df, period)
+    if period != 'daily': df = resample_data(df, period)
 
-    # Calculate Indicators for Frontend Display
     engine = BacktestEngine(df)
     df = engine.calculate_indicators(df)
-
-    # Handle NaN
     df = df.fillna(0)
 
-    # Ensure index name is Date
-    if df.index.name != 'Date':
-        df.index.name = 'Date'
-
+    if df.index.name != 'Date': df.index.name = 'Date'
     df_reset = df.reset_index()
-
-    # Check if Date column exists after reset
     if 'Date' not in df_reset.columns:
-         if 'index' in df_reset.columns:
-             df_reset.rename(columns={'index': 'Date'}, inplace=True)
-
-    # Convert timestamp to string
+         if 'index' in df_reset.columns: df_reset.rename(columns={'index': 'Date'}, inplace=True)
     if 'Date' in df_reset.columns:
-        try:
-            df_reset['Date'] = df_reset['Date'].dt.strftime('%Y-%m-%d')
-        except Exception:
-            df_reset['Date'] = df_reset['Date'].astype(str)
+        try: df_reset['Date'] = df_reset['Date'].dt.strftime('%Y-%m-%d')
+        except: df_reset['Date'] = df_reset['Date'].astype(str)
 
     records = df_reset.to_dict(orient='records')
     return {"code": code, "period": period, "data": records}
@@ -113,71 +74,84 @@ def get_stock_data_api(code: str, period: str = Query('daily', regex='^(daily|we
 @app.post("/backtest")
 async def run_backtest(req: BacktestRequest):
     end_date = req.end_date if req.end_date else datetime.datetime.now().strftime('%Y-%m-%d')
-    start_date = req.start_date
-
-    df = get_stock_data(req.code, start_date=start_date, end_date=end_date)
-    if df.empty:
-        return {"error": "No data for backtest"}
-
+    df = get_stock_data(req.code, start_date=req.start_date, end_date=end_date)
+    if df.empty: return {"error": "No data for backtest"}
     engine = BacktestEngine(df)
     engine.cash = req.initial_cash
-
-    async def progress(p):
-        print(f"Progress: {p}%")
-
-    result = await engine.run(progress_callback=progress)
-
+    result = await engine.run()
     return result
+
+@app.post("/sync_data")
+async def api_sync_data():
+    """Trigger background data sync"""
+    await trigger_sync()
+    return {"status": "started"}
+
+@app.get("/sync_status")
+def api_sync_status():
+    return get_sync_progress()
 
 @app.post("/screener")
 async def run_screener(req: ScreenerRequest):
     """
-    Run strategy on a list of stocks and return those with a Buy Signal on target_date.
+    Screener based on LOCAL DB using Funnel approach.
     """
-    # Default list if not provided (Sample A-shares)
-    stock_list = req.codes if req.codes else [
-        "000001", "600519", "300059", "601318", "002594", "601138", "301301",
-        "600030", "000858", "600036", "601012", "000333", "603259", "300750"
-    ]
+    # 1. Determine Scope
+    if req.codes:
+        stock_list = req.codes
+    else:
+        # Use ALL stocks in DB (assuming sync is done/partial)
+        # Or fetch all codes if DB is empty? No, rely on what's available.
+        # But user wants "Full Market".
+        # Check if DB has data.
+        conn = provider.db_manager.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT code FROM stock_daily_qfq")
+        rows = cursor.fetchall()
+        stock_list = [r[0] for r in rows]
+        conn.close()
+
+        if not stock_list:
+            # If DB empty, fallback to default list to avoid empty result
+            stock_list = ["000001", "600519", "300059"]
 
     target_date = req.target_date
-    if not target_date:
-        target_date = datetime.datetime.now().strftime('%Y-%m-%d')
-
     results = []
 
-    # Optimization: Use a simpler date range for screening (e.g. last 1 year)
-    start_date = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
+    # Logic: Monthly -> Weekly -> Daily (Funnel)
+    # To do this efficiently, we iterate stocks and check.
+
+    # Pre-fetch range: Need enough history for Monthly MACD
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime('%Y-%m-%d') # 2 years
 
     for code in stock_list:
         try:
-            df = get_stock_data(code, start_date=start_date, end_date=end_date)
+            # We ONLY query DB here. Screener should be fast.
+            df = provider.db_manager.get_stock_data(code, start_date, end_date)
             if df.empty or len(df) < 50: continue
 
             engine = BacktestEngine(df)
-            # We don't need to run full simulation, just check signals
-            # But run() does the pre-calculation. Let's use run() but optimized?
-            # Actually run() is fast enough for 1 year data on 10 stocks.
-            # But we only care about the signal on the LAST day (or target date).
 
-            # Run engine
+            # Use engine's check_signal logic
+            # Refactoring engine to expose check is good, but for now we can rely on `run`
+            # `run` computes indicators and signals.
+            # Optimization: If we can make `run` skip loop if Monthly fail?
+            # Current `run` is full loop.
+
+            # Let's perform a lightweight check here or use `run` (robust).
             res = await engine.run()
             bars = pd.read_json(res['bars'], orient='index')
 
             if 'buy_signal' in bars.columns:
-                # Check last row
                 last_row = bars.iloc[-1]
-                # Or check specific target date if needed
-
                 if last_row['buy_signal']:
                     results.append({
                         "code": code,
-                        "date": last_row.name.strftime('%Y-%m-%d') if hasattr(last_row.name, 'strftime') else str(last_row.name),
+                        "date": str(last_row.name).split(' ')[0],
                         "price": last_row['Close']
                     })
-        except Exception as e:
-            print(f"Screener error for {code}: {e}")
+        except Exception:
             continue
 
     return {"count": len(results), "results": results}

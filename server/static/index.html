@@ -10,6 +10,19 @@
 <body>
     <div class="sidebar" id="sidebar">
         <h2>控制面板</h2>
+
+        <!-- Data Sync Section -->
+        <div class="sync-section">
+            <button class="action-btn sync-btn" onclick="syncData()">全市场数据同步</button>
+            <div id="syncProgress" class="progress-container" style="display:none;">
+                <div class="progress-bar">
+                    <div id="syncBar" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <div id="syncText" class="progress-text">0%</div>
+            </div>
+        </div>
+        <hr>
+
         <div class="form-group">
             <label>股票代码:</label>
             <input type="text" id="stockCode" value="000001" placeholder="例如 000001">
