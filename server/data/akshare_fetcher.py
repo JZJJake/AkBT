@@ -30,12 +30,11 @@ def fetch_all_stock_codes():
     except Exception as e:
         print(f"Error fetching stock list: {e}")
 
-    # Fallback list if API fails
-    return [
-        "000001", "600519", "300059", "601318", "002594",
-        "601138", "301301", "600030", "000858", "600036",
-        "601012", "000333", "603259", "300750"
-    ]
+    # Critical: Do NOT fallback to small list if user wants Full Market.
+    # Return empty list to signal failure, so retry logic can happen or user sees error.
+    # However, if it's just a timeout, maybe we retry?
+    # For now, return empty list so the sync task knows it failed.
+    return []
 
 def fetch_stock_daily(code, start_date='20200101', end_date=None, adjust='qfq'):
     """

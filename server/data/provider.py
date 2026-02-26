@@ -69,9 +69,20 @@ class DataProvider:
 
         return self.db_manager.get_stock_data(code, start_date, end_date)
 
+    async def _fetch_and_update_single(self, code, loop):
+        """Helper for async fetch"""
+        try:
+            # We call get_data but ignore result, just to trigger update
+            await loop.run_in_executor(None, self.get_data, code, "2020-01-01", datetime.now().strftime('%Y-%m-%d'))
+            return True
+        except Exception as e:
+            logger.error(f"Error syncing {code}: {e}")
+            return False
+
     async def sync_all_stocks_task(self):
         """
         后台任务：同步全市场数据
+        Optimized with concurrency.
         """
         if self._sync_status["status"] == "running":
             return
@@ -80,35 +91,44 @@ class DataProvider:
 
         try:
             # 1. Get List
-            codes = fetch_all_stock_codes()
+            loop = asyncio.get_event_loop()
+            codes = await loop.run_in_executor(None, fetch_all_stock_codes)
+
+            if not codes:
+                raise Exception("Failed to fetch stock list (empty). Check network.")
+
             self._sync_status["total"] = len(codes)
 
-            # 2. Iterate
-            loop = asyncio.get_event_loop()
+            # 2. Iterate with Concurrency control
+            # Limit concurrency to avoid IP ban (e.g. 5 concurrent requests)
+            sem = asyncio.Semaphore(5)
 
-            # For demo/sandbox safety, limit the number if needed, but user asked for "No Discount".
-            # However, to avoid script timeout in this interaction, I must handle it carefully.
-            # I will process in chunks.
+            async def bound_fetch(code):
+                async with sem:
+                    # Log message update (sampled to reduce spam)
+                    # if random.random() < 0.05:
+                    #    self._sync_status["message"] = f"Processing {code}..."
+                    await self._fetch_and_update_single(code, loop)
 
-            # TODO: In real deployment, process all.
-            # For this demo, let's process top 50 to prove logic, then user can let it run.
-            # codes = codes[:50]
-
+            # Process in batches to update progress smoothly
+            batch_size = 50
             processed = 0
-            for code in codes:
-                self._sync_status["message"] = f"Processing {code} ({processed}/{len(codes)})"
 
-                # Use thread pool for blocking IO
-                await loop.run_in_executor(None, self.get_data, code, "2020-01-01", datetime.now().strftime('%Y-%m-%d'))
+            for i in range(0, len(codes), batch_size):
+                batch = codes[i:i+batch_size]
+                self._sync_status["message"] = f"Processing batch {i}-{i+len(batch)} / {len(codes)}"
 
-                processed += 1
+                tasks = [bound_fetch(code) for code in batch]
+                await asyncio.gather(*tasks)
+
+                processed += len(batch)
                 self._sync_status["progress"] = int((processed / len(codes)) * 100)
 
-                # Be nice to the API
-                # await asyncio.sleep(0.5)
+                # Small pause between batches
+                await asyncio.sleep(1)
 
             self._sync_status["status"] = "completed"
-            self._sync_status["message"] = "Sync completed."
+            self._sync_status["message"] = f"Sync completed. Processed {processed} stocks."
 
         except Exception as e:
             self._sync_status["status"] = "error"

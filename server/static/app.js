@@ -222,7 +222,15 @@ async function runScreener() {
             html += `</div>`;
             resultBox.innerHTML = html;
         } else {
-            resultBox.innerHTML = "<h3>选股结果</h3><p>未发现符合买入条件的股票。</p>";
+            // Hint about Full Sync if results are empty (and maybe list was small)
+            resultBox.innerHTML = `
+                <h3>选股结果 (0)</h3>
+                <p>未发现符合条件的股票。</p>
+                <p style="color: #888; font-size: 0.8em;">
+                    提示：如果这是您第一次运行，请先点击上方“全市场数据同步”按钮，
+                    下载完整市场数据后再进行选股。
+                </p>
+            `;
         }
 
     } catch (e) {
