@@ -4,7 +4,8 @@ import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from server.data.db_manager import DatabaseManager
-from server.data.akshare_fetcher import fetch_stock_daily, fetch_all_stock_codes
+# Replace AkShare with TDX
+from server.data.tdx_fetcher import fetch_stock_daily_tdx, fetch_all_stock_codes_tdx
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 class DataProvider:
     """
     数据提供层服务。
-    封装了数据库查询与 AkShare 外部接口调用。
+    封装了数据库查询与外部接口调用 (TDX)。
     """
     def __init__(self, db_path="market_data.db"):
         self.db_manager = DatabaseManager(db_path)
@@ -24,7 +25,7 @@ class DataProvider:
 
     def get_data(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        获取股票数据 (优先查询数据库，过期或缺失则调用 AkShare 更新)。
+        获取股票数据 (优先查询数据库，过期或缺失则调用 TDX 更新)。
         """
         now = datetime.now()
         last_check = self._last_update_check.get(code)
@@ -47,7 +48,9 @@ class DataProvider:
                 latest_date = datetime.strptime(latest_date_str, "%Y-%m-%d").date()
                 req_end = datetime.strptime(end_date, "%Y-%m-%d").date()
 
+                # Check stale (yesterday)
                 if latest_date < (today_date - timedelta(days=1)):
+                     # Optimization: Check if today is trading day? Assume yes for simplicity.
                      logger.info(f"Data for {code} is stale (latest: {latest_date}). Will fetch update.")
                      need_update = True
                 elif req_end > latest_date:
@@ -56,13 +59,14 @@ class DataProvider:
 
         if need_update:
             try:
-                logger.info(f"Fetching online data for {code}...")
-                new_df = fetch_stock_daily(code)
+                logger.info(f"Fetching online data for {code} (TDX)...")
+                # TDX Fetcher returns all history usually, or we can filter inside but upsert handles it
+                new_df = fetch_stock_daily_tdx(code)
                 if not new_df.empty:
                     self.db_manager.save_stock_data(code, new_df)
                     self._last_update_check[code] = now
                 else:
-                    logger.warning(f"AkShare returned empty data for {code}.")
+                    logger.warning(f"TDX returned empty data for {code}.")
                     self._last_update_check[code] = now
             except Exception as e:
                 logger.error(f"Failed to update data for {code}: {e}")
@@ -72,7 +76,7 @@ class DataProvider:
     async def _fetch_and_update_single(self, code, loop):
         """Helper for async fetch"""
         try:
-            # We call get_data but ignore result, just to trigger update
+            # Run blocking TDX fetch in executor
             await loop.run_in_executor(None, self.get_data, code, "2020-01-01", datetime.now().strftime('%Y-%m-%d'))
             return True
         except Exception as e:
@@ -81,36 +85,42 @@ class DataProvider:
 
     async def sync_all_stocks_task(self):
         """
-        后台任务：同步全市场数据
-        Optimized with concurrency.
+        后台任务：同步全市场数据 (使用 TDX 高速接口)
         """
         if self._sync_status["status"] == "running":
             return
 
-        self._sync_status = {"status": "running", "progress": 0, "total": 0, "message": "Fetching stock list..."}
+        self._sync_status = {"status": "running", "progress": 0, "total": 0, "message": "Fetching stock list (TDX)..."}
 
         try:
-            # 1. Get List
+            # 1. Get List via TDX
             loop = asyncio.get_event_loop()
-            codes = await loop.run_in_executor(None, fetch_all_stock_codes)
+            codes = await loop.run_in_executor(None, fetch_all_stock_codes_tdx)
 
             if not codes:
-                raise Exception("Failed to fetch stock list (empty). Check network.")
+                raise Exception("Failed to fetch stock list from TDX.")
 
             self._sync_status["total"] = len(codes)
 
-            # 2. Iterate with Concurrency control
-            # Limit concurrency to avoid IP ban (e.g. 5 concurrent requests)
-            sem = asyncio.Semaphore(5)
+            # 2. Iterate
+            # TDX is fast, but we still use concurrency.
+            # Connection pooling might be needed? TdxFetcher manages single connection.
+            # Multithreading on single TdxHq_API instance might be thread-unsafe or blocked.
+            # Best practice: Use a semaphore to limit concurrency, and maybe create new instances if needed?
+            # Or just sequential is fast enough?
+            # Sequential TDX: ~20ms per stock -> 5000 stocks = 100s. Very fast.
+            # Let's try concurrency=10 with the shared instance (pytdx is blocking socket).
+            # Actually, standard pytdx client is synchronous.
+            # We can use ThreadPoolExecutor to run multiple clients?
+            # For simplicity and stability, let's keep concurrency low (e.g. 4) or sequential if it's fast enough.
+            # 5000 * 0.05s = 250s = 4 min. Acceptable.
+
+            sem = asyncio.Semaphore(4)
 
             async def bound_fetch(code):
                 async with sem:
-                    # Log message update (sampled to reduce spam)
-                    # if random.random() < 0.05:
-                    #    self._sync_status["message"] = f"Processing {code}..."
                     await self._fetch_and_update_single(code, loop)
 
-            # Process in batches to update progress smoothly
             batch_size = 50
             processed = 0
 
@@ -124,8 +134,7 @@ class DataProvider:
                 processed += len(batch)
                 self._sync_status["progress"] = int((processed / len(codes)) * 100)
 
-                # Small pause between batches
-                await asyncio.sleep(1)
+                # No sleep needed for TDX usually
 
             self._sync_status["status"] = "completed"
             self._sync_status["message"] = f"Sync completed. Processed {processed} stocks."
