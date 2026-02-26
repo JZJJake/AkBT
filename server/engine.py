@@ -101,6 +101,9 @@ class BacktestEngine:
             'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
         })
 
+        # Drop empty periods (e.g. holidays/suspensions where no daily data existed)
+        resampled.dropna(subset=['Close'], inplace=True)
+
         # 过滤掉未来的 (resample 可能会生成以周期结束日为索引的行，即使该结束日 > current_date)
         # 例如 current_date 是周三(2023-01-04)，周期结束日是周五(2023-01-06)。
         # Pandas resample 会把这一行标记为 2023-01-06。这是允许的，表示"截至本周的K线"。

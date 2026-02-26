@@ -105,16 +105,10 @@ def _process_data(df):
     cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     df = df[cols]
 
-    # Handle Suspensions (ffill)
-    full_idx = pd.date_range(start=df.index.min(), end=df.index.max(), freq='B')
-    df = df.reindex(full_idx)
-    df['Close'] = df['Close'].ffill()
-    df['Open'] = df['Open'].fillna(df['Close'])
-    df['High'] = df['High'].fillna(df['Close'])
-    df['Low'] = df['Low'].fillna(df['Close'])
-    df['Volume'] = df['Volume'].fillna(0)
-    df.dropna(subset=['Close'], inplace=True)
+    # Do NOT fill gaps. Return actual trading days only.
+    # User requirement: "不应该计算交易日，不应该显示在K线和其他指标上"
 
+    df.dropna(subset=['Close'], inplace=True)
     df.index.name = 'Date'
     return df
 
