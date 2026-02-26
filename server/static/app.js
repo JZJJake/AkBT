@@ -1,4 +1,29 @@
 let chartInstance = null;
+let currentData = null; // Store data for resize
+
+// Sidebar Resize Logic
+const sidebar = document.getElementById('sidebar');
+const resizer = document.getElementById('resizer');
+let isResizing = false;
+
+resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    document.body.style.cursor = 'col-resize';
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const newWidth = e.clientX;
+    if (newWidth > 150 && newWidth < 600) {
+        sidebar.style.width = newWidth + 'px';
+        if (chartInstance) chartInstance.resize();
+    }
+});
+
+document.addEventListener('mouseup', () => {
+    isResizing = false;
+    document.body.style.cursor = 'default';
+});
 
 async function loadData() {
     const code = document.getElementById('stockCode').value;
@@ -15,14 +40,11 @@ async function loadData() {
             return alert("未获取到数据");
         }
 
-        // Debug
-        console.log("Received data records:", json.data.length);
-        console.log("First record:", json.data[0]);
-
         if (!json.data[0].Date) {
             return alert("数据格式错误: 缺少 Date 字段");
         }
 
+        currentData = json.data;
         renderChart(json.data, json.code);
     } catch (e) {
         console.error(e);
@@ -47,7 +69,7 @@ async function runBacktest() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 code: code,
-                start_date: start, // YYYY-MM-DD
+                start_date: start,
                 end_date: end ? end : null,
                 initial_cash: parseFloat(cash)
             })
@@ -77,6 +99,8 @@ async function runBacktest() {
 
         resultBox.innerHTML = html;
 
+        // Refresh chart if data loaded (to show signals? Not implemented yet but good practice)
+
     } catch (e) {
         console.error(e);
         resultBox.innerHTML = "回测出错: " + e.message;
@@ -87,17 +111,14 @@ function renderChart(data, code) {
     if (chartInstance) {
         chartInstance.dispose();
     }
-    chartInstance = echarts.init(document.getElementById('chartContainer'));
+    const container = document.getElementById('chartContainer');
+    chartInstance = echarts.init(container);
 
     // Process Data
     const dates = data.map(item => item.Date);
-    // Open, Close, Low, High (ECharts Candlestick: [open, close, low, high])
-    // But data is: {Open, Close, Low, High, Volume, ...}
     const klineData = data.map(item => [item.Open, item.Close, item.Low, item.High]);
     const volumes = data.map((item, idx) => [idx, item.Volume, item.Open > item.Close ? 1 : -1]);
 
-    // Indicators (Assuming server calculates them, else we need JS logic)
-    // Server should provide: MACD_DIF, MACD_DEA, MACD_HIST, K, D, J
     const macdDif = data.map(item => item.MACD_DIF || 0);
     const macdDea = data.map(item => item.MACD_DEA || 0);
     const macdHist = data.map(item => item.MACD_HIST || 0);
@@ -106,18 +127,31 @@ function renderChart(data, code) {
     const dVal = data.map(item => item.D || 0);
     const jVal = data.map(item => item.J || 0);
 
+    // Layout Calculation (Percentage)
+    // Total 100%
+    // KLine: 50%
+    // Vol: 15%
+    // MACD: 15%
+    // KDJ: 15%
+    // Gap: 5% distributed
+
     const option = {
+        backgroundColor: '#000',
+        animation: false,
         title: { text: code + ' 日线图', left: 'center', textStyle: { color: '#fff' } },
         tooltip: {
             trigger: 'axis',
-            axisPointer: { type: 'cross' }
+            axisPointer: { type: 'cross' },
+            backgroundColor: 'rgba(50,50,50,0.7)',
+            borderColor: '#ccc',
+            textStyle: { color: '#fff' }
         },
         axisPointer: { link: { xAxisIndex: 'all' } },
         grid: [
-            { left: '10%', right: '5%', height: '40%', top: '10%' }, // KLine
-            { left: '10%', right: '5%', height: '10%', top: '50%' }, // Vol
-            { left: '10%', right: '5%', height: '15%', top: '60%' }, // MACD
-            { left: '10%', right: '5%', height: '15%', top: '75%' }  // KDJ
+            { left: '5%', right: '5%', height: '45%', top: '5%' },   // KLine
+            { left: '5%', right: '5%', height: '10%', top: '52%' },  // Vol
+            { left: '5%', right: '5%', height: '15%', top: '64%' },  // MACD
+            { left: '5%', right: '5%', height: '15%', top: '81%' }   // KDJ
         ],
         xAxis: [
             { type: 'category', data: dates, gridIndex: 0, axisLine: { lineStyle: { color: '#8392A5' } } },
@@ -126,14 +160,14 @@ function renderChart(data, code) {
             { type: 'category', data: dates, gridIndex: 3, show: false }
         ],
         yAxis: [
-            { scale: true, gridIndex: 0, splitLine: { show: false }, axisLine: { lineStyle: { color: '#8392A5' } } },
+            { scale: true, gridIndex: 0, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLine: { lineStyle: { color: '#8392A5' } } },
             { scale: true, gridIndex: 1, splitLine: { show: false }, axisLabel: { show: false } },
-            { scale: true, gridIndex: 2, splitLine: { show: false }, axisLabel: { show: false } },
-            { scale: true, gridIndex: 3, splitLine: { show: false }, axisLabel: { show: false } }
+            { scale: true, gridIndex: 2, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLabel: { show: false } },
+            { scale: true, gridIndex: 3, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLabel: { show: false } }
         ],
         dataZoom: [
             { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100 },
-            { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100, bottom: 10 }
+            { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100, bottom: 5, height: 20, borderColor: '#333', fillerColor: 'rgba(100,100,100,0.5)' }
         ],
         series: [
             // KLine
@@ -154,7 +188,7 @@ function renderChart(data, code) {
             {
                 type: 'bar',
                 name: 'Volume',
-                data: volumes.map(v => v[1]), // Just volume
+                data: volumes.map(v => v[1]),
                 xAxisIndex: 1,
                 yAxisIndex: 1,
                 itemStyle: {
@@ -164,8 +198,8 @@ function renderChart(data, code) {
                 }
             },
             // MACD
-            { type: 'line', name: 'DIF', data: macdDif, xAxisIndex: 2, yAxisIndex: 2, symbol: 'none', lineStyle: { width: 1 } },
-            { type: 'line', name: 'DEA', data: macdDea, xAxisIndex: 2, yAxisIndex: 2, symbol: 'none', lineStyle: { width: 1 } },
+            { type: 'line', name: 'DIF', data: macdDif, xAxisIndex: 2, yAxisIndex: 2, symbol: 'none', lineStyle: { width: 1, color: '#fff' } },
+            { type: 'line', name: 'DEA', data: macdDea, xAxisIndex: 2, yAxisIndex: 2, symbol: 'none', lineStyle: { width: 1, color: '#ffeb3b' } },
             {
                 type: 'bar', name: 'MACD', data: macdHist, xAxisIndex: 2, yAxisIndex: 2,
                 itemStyle: {
@@ -173,10 +207,26 @@ function renderChart(data, code) {
                 }
             },
             // KDJ
-            { type: 'line', name: 'K', data: kVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1 } },
-            { type: 'line', name: 'D', data: dVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1 } },
-            { type: 'line', name: 'J', data: jVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1 } }
+            { type: 'line', name: 'K', data: kVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1, color: '#fff' } },
+            { type: 'line', name: 'D', data: dVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1, color: '#ffeb3b' } },
+            { type: 'line', name: 'J', data: jVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1, color: '#e91e63' } }
         ]
+    };
+
+    // Add 0-axis MarkLine for MACD
+    option.series[2].markLine = {
+        symbol: 'none',
+        silent: true,
+        lineStyle: { color: '#666', type: 'dashed' },
+        data: [{ yAxis: 0 }]
+    };
+
+    // Add 20/50/80 lines for KDJ
+    option.series[5].markLine = {
+         symbol: 'none',
+         silent: true,
+         lineStyle: { color: '#333', type: 'dashed' },
+         data: [{ yAxis: 20 }, { yAxis: 50 }, { yAxis: 80 }]
     };
 
     chartInstance.setOption(option);
