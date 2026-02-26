@@ -34,9 +34,9 @@ class BacktestEngine:
         self.cash = 100000.0 # 初始资金
 
         # 策略参数
-        self.macd_fast = 12
-        self.macd_slow = 26
-        self.macd_signal = 9
+        self.macd_fast = 10
+        self.macd_slow = 25
+        self.macd_signal = 7
         self.kdj_length = 9
         self.kdj_signal = 3
 

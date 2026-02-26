@@ -223,7 +223,14 @@ function renderChart(data, code, period) {
             {
                 type: 'bar', name: 'MACD', data: macdHist, xAxisIndex: 2, yAxisIndex: 2,
                 itemStyle: {
-                    color: (params) => params.value > 0 ? '#FD1050' : '#0CF49B'
+                    color: (params) => {
+                        const index = params.dataIndex;
+                        const current = params.value;
+                        const prev = index > 0 ? macdHist[index - 1] : 0;
+
+                        // Rule: Current > Previous => Red, Else => Green
+                        return current > prev ? '#FD1050' : '#0CF49B';
+                    }
                 }
             },
             // KDJ
