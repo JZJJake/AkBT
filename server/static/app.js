@@ -163,7 +163,7 @@ function renderChart(data, code, period) {
             jArrowData.push({
                 xAxis: i,
                 yAxis: jCurr,
-                value: '拐点',
+                value: '', // Remove text
                 symbol: 'arrow',
                 symbolSize: 8,
                 symbolRotate: 0,
@@ -226,6 +226,23 @@ function renderChart(data, code, period) {
                     color0: '#0CF49B',
                     borderColor: '#FD1050',
                     borderColor0: '#0CF49B'
+                },
+                markPoint: {
+                    data: (data.map((item, index) => {
+                        if (item.buy_signal) {
+                            return {
+                                name: 'Buy',
+                                coord: [index, item.Low * 0.98],
+                                value: 'B',
+                                itemStyle: { color: '#e91e63' },
+                                symbolOffset: [0, 10]
+                            };
+                        }
+                        return null;
+                    })).filter(item => item !== null),
+                    symbol: 'arrow',
+                    symbolRotate: 0, // Point Up
+                    symbolSize: 10
                 }
             },
             // EMA20
