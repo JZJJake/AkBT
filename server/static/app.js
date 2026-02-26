@@ -145,20 +145,44 @@ function renderChart(data, code, period) {
     const macdDea = data.map(item => item.MACD_DEA || 0);
     const macdHist = data.map(item => item.MACD_HIST || 0);
 
+    const ema20 = data.map(item => item.EMA20 || null);
+
     const kVal = data.map(item => item.K || 0);
     const dVal = data.map(item => item.D || 0);
     const jVal = data.map(item => item.J || 0);
+
+    // KDJ J-Turn Arrow Logic
+    // Condition: J < 50 AND J(t) > J(t-1) AND J(t-1) <= J(t-2)
+    const jArrowData = [];
+    for(let i = 2; i < jVal.length; i++) {
+        const jCurr = jVal[i];
+        const jPrev = jVal[i-1];
+        const jPrev2 = jVal[i-2];
+
+        if (jCurr < 50 && jCurr > jPrev && jPrev <= jPrev2) {
+            jArrowData.push({
+                xAxis: i,
+                yAxis: jCurr,
+                value: '拐点',
+                symbol: 'arrow',
+                symbolSize: 8,
+                symbolRotate: 0,
+                symbolOffset: [0, 10], // Offset below
+                itemStyle: { color: 'red' }
+            });
+        }
+    }
 
     const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[period];
 
     const option = {
         backgroundColor: '#1e1e1e', // Match CSS
         animation: false,
-        title: {
-            text: `${code} ${periodName}`,
-            left: 'center',
-            textStyle: { color: '#e0e0e0', fontSize: 16 }
-        },
+        title: [
+            { text: `${code} ${periodName}`, left: 'center', textStyle: { color: '#e0e0e0', fontSize: 16 } },
+            { text: 'MACD(10,25,7)', left: '65px', top: '64%', textStyle: { color: '#aaa', fontSize: 10 } },
+            { text: 'KDJ(9,3,3)', left: '65px', top: '82%', textStyle: { color: '#aaa', fontSize: 10 } }
+        ],
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'cross' },
@@ -204,6 +228,17 @@ function renderChart(data, code, period) {
                     borderColor0: '#0CF49B'
                 }
             },
+            // EMA20
+            {
+                type: 'line',
+                name: 'EMA20',
+                data: ema20,
+                xAxisIndex: 0,
+                yAxisIndex: 0,
+                symbol: 'none',
+                smooth: true,
+                lineStyle: { width: 1, color: '#ffeb3b' }
+            },
             // Volume
             {
                 type: 'bar',
@@ -240,20 +275,41 @@ function renderChart(data, code, period) {
         ]
     };
 
-    // Add 0-axis MarkLine for MACD
-    option.series[2].markLine = {
+    // Add 0-axis MarkLine for MACD (Series index shifted by +1 due to EMA20)
+    // 0:KLine, 1:EMA20, 2:Vol, 3:DIF, 4:DEA, 5:MACDBar
+    option.series[5].markLine = {
         symbol: 'none',
         silent: true,
         lineStyle: { color: '#666', type: 'dashed' },
         data: [{ yAxis: 0 }]
     };
 
-    // Add 20/50/80 lines for KDJ
-    option.series[5].markLine = {
+    // Add 80/30 lines for KDJ (Red/Green)
+    // Note: series index 6 because we added EMA20 at index 1
+    // Index mapping: 0:KLine, 1:EMA20, 2:Vol, 3:DIF, 4:DEA, 5:MACDBar, 6:K, 7:D, 8:J
+
+    // Actually let's count properly:
+    // 0: KLine
+    // 1: EMA20
+    // 2: Volume
+    // 3: DIF
+    // 4: DEA
+    // 5: MACD Hist
+    // 6: K
+    // 7: D
+    // 8: J
+
+    option.series[8].markLine = {
          symbol: 'none',
          silent: true,
-         lineStyle: { color: '#333', type: 'dashed' },
-         data: [{ yAxis: 20 }, { yAxis: 50 }, { yAxis: 80 }]
+         data: [
+             { yAxis: 80, lineStyle: { color: 'red', type: 'dashed', width: 1 } },
+             { yAxis: 30, lineStyle: { color: 'green', type: 'dashed', width: 1 } }
+         ]
+    };
+
+    option.series[8].markPoint = {
+        data: jArrowData
     };
 
     chartInstance.setOption(option);

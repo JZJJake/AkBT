@@ -44,8 +44,17 @@ class BacktestEngine:
         self.daily_processed = None
 
     def calculate_indicators(self, df):
-        """计算 MACD 和 KDJ 指标"""
+        """计算 MACD, KDJ, EMA 指标"""
         if len(df) < 30: return df
+
+        # EMA 20
+        try:
+            ema20 = df.ta.ema(length=20)
+            if ema20 is not None:
+                # pandas_ta returns Series named EMA_20
+                df['EMA20'] = ema20
+        except Exception:
+            pass
 
         # MACD
         try:
@@ -126,7 +135,7 @@ class BacktestEngine:
         self.daily_processed = self.calculate_indicators(self.raw_data.copy())
 
         # 填充 NaN 以防计算报错
-        cols_to_fill = ['MACD_DIF', 'MACD_HIST', 'MACD_DEA', 'K', 'D', 'J']
+        cols_to_fill = ['MACD_DIF', 'MACD_HIST', 'MACD_DEA', 'K', 'D', 'J', 'EMA20']
         for col in cols_to_fill:
             if col in self.daily_processed.columns:
                 self.daily_processed[col] = self.daily_processed[col].fillna(0)
