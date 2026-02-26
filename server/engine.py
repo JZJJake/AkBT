@@ -213,6 +213,11 @@ class BacktestEngine:
             signal_buy = cond_month and cond_week and cond_daily
 
             # --- 执行交易 ---
+            if signal_buy:
+                print(f"[{current_date.date()}] Buy Signal Triggered! Price: {d_curr['Close']}")
+                # Mark signal in DataFrame for frontend (Even if not executed due to cash/pos)
+                self.daily_processed.at[current_date, 'buy_signal'] = True
+
             if signal_buy and self.position == 0:
                 price = d_curr['Close']
                 shares_can_buy = int(self.cash // (price * 100)) * 100
@@ -230,8 +235,6 @@ class BacktestEngine:
                         "price": price,
                         "reason": "Strategy Signal"
                     })
-                    # Mark signal in DataFrame for frontend
-                    self.daily_processed.at[current_date, 'buy_signal'] = True
 
             # --- 卖出逻辑 (简单止损/止盈) ---
             # 暂时沿用之前的逻辑或简单持有?

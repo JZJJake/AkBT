@@ -123,6 +123,33 @@ async function runBacktest() {
 
         resultBox.innerHTML = html;
 
+        // Refresh chart with new data (containing buy_signal)
+        if (json.bars) {
+            // Bars is a JSON string, need to parse
+            try {
+                const barData = JSON.parse(json.bars);
+                // Convert object of objects/arrays to array of objects
+                // pandas to_json(orient='index') returns: {"2020-01-01": {Open:10...}, ...}
+                // We need array: [{Date: "2020-01-01", Open:10...}, ...]
+
+                const dataArray = Object.keys(barData).map(date => {
+                    const item = barData[date];
+                    // item.Date might be missing if index was used, but key is date
+                    item.Date = date.split('T')[0]; // Ensure pure date string
+                    return item;
+                });
+
+                // Sort by Date just in case
+                dataArray.sort((a, b) => new Date(a.Date) - new Date(b.Date));
+
+                // Render with backtest results
+                renderChart(dataArray, code, currentPeriod);
+
+            } catch (e) {
+                console.error("Error parsing backtest bars:", e);
+            }
+        }
+
     } catch (e) {
         console.error(e);
         resultBox.innerHTML = "回测出错: " + e.message;
