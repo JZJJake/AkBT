@@ -1,5 +1,5 @@
 let chartInstance = null;
-let currentData = null; // Store data for resize
+let currentPeriod = 'daily'; // Default period
 
 // Sidebar Resize Logic
 const sidebar = document.getElementById('sidebar');
@@ -25,18 +25,37 @@ document.addEventListener('mouseup', () => {
     document.body.style.cursor = 'default';
 });
 
+function switchPeriod(period) {
+    if (currentPeriod === period) return;
+    currentPeriod = period;
+
+    // Update active button state
+    document.querySelectorAll('.p-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`btn-${period}`).classList.add('active');
+
+    // Reload data with new period
+    loadData();
+}
+
 async function loadData() {
     const code = document.getElementById('stockCode').value;
     if (!code) return alert("请输入股票代码");
 
+    // Update Stock Info Title (placeholder)
+    document.getElementById('stockInfo').innerText = `加载中: ${code}...`;
+
     try {
-        const resp = await fetch(`/data/${code}`);
+        const resp = await fetch(`/data/${code}?period=${currentPeriod}`);
         if (!resp.ok) throw new Error("Fetch failed");
 
         const json = await resp.json();
-        if (json.error) return alert(json.error);
+        if (json.error) {
+            document.getElementById('stockInfo').innerText = "加载失败";
+            return alert(json.error);
+        }
 
         if (!json.data || json.data.length === 0) {
+            document.getElementById('stockInfo').innerText = "无数据";
             return alert("未获取到数据");
         }
 
@@ -44,10 +63,15 @@ async function loadData() {
             return alert("数据格式错误: 缺少 Date 字段");
         }
 
-        currentData = json.data;
-        renderChart(json.data, json.code);
+        renderChart(json.data, json.code, currentPeriod);
+
+        // Update Title
+        const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[currentPeriod];
+        document.getElementById('stockInfo').innerText = `${json.code} - ${periodName} (${json.data.length} bar)`;
+
     } catch (e) {
         console.error(e);
+        document.getElementById('stockInfo').innerText = "加载出错";
         alert("加载数据失败: " + e.message);
     }
 }
@@ -99,15 +123,13 @@ async function runBacktest() {
 
         resultBox.innerHTML = html;
 
-        // Refresh chart if data loaded (to show signals? Not implemented yet but good practice)
-
     } catch (e) {
         console.error(e);
         resultBox.innerHTML = "回测出错: " + e.message;
     }
 }
 
-function renderChart(data, code) {
+function renderChart(data, code, period) {
     if (chartInstance) {
         chartInstance.dispose();
     }
@@ -127,31 +149,29 @@ function renderChart(data, code) {
     const dVal = data.map(item => item.D || 0);
     const jVal = data.map(item => item.J || 0);
 
-    // Layout Calculation (Percentage)
-    // Total 100%
-    // KLine: 50%
-    // Vol: 15%
-    // MACD: 15%
-    // KDJ: 15%
-    // Gap: 5% distributed
+    const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[period];
 
     const option = {
-        backgroundColor: '#000',
+        backgroundColor: '#1e1e1e', // Match CSS
         animation: false,
-        title: { text: code + ' 日线图', left: 'center', textStyle: { color: '#fff' } },
+        title: {
+            text: `${code} ${periodName}`,
+            left: 'center',
+            textStyle: { color: '#e0e0e0', fontSize: 16 }
+        },
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'cross' },
-            backgroundColor: 'rgba(50,50,50,0.7)',
-            borderColor: '#ccc',
+            backgroundColor: 'rgba(50,50,50,0.9)',
+            borderColor: '#555',
             textStyle: { color: '#fff' }
         },
         axisPointer: { link: { xAxisIndex: 'all' } },
         grid: [
-            { left: '5%', right: '5%', height: '45%', top: '5%' },   // KLine
-            { left: '5%', right: '5%', height: '10%', top: '52%' },  // Vol
-            { left: '5%', right: '5%', height: '15%', top: '64%' },  // MACD
-            { left: '5%', right: '5%', height: '15%', top: '81%' }   // KDJ
+            { left: '60px', right: '30px', height: '45%', top: '30px' },   // KLine
+            { left: '60px', right: '30px', height: '10%', top: '50%' },  // Vol
+            { left: '60px', right: '30px', height: '15%', top: '63%' },  // MACD
+            { left: '60px', right: '30px', height: '15%', top: '81%' }   // KDJ
         ],
         xAxis: [
             { type: 'category', data: dates, gridIndex: 0, axisLine: { lineStyle: { color: '#8392A5' } } },
@@ -160,20 +180,20 @@ function renderChart(data, code) {
             { type: 'category', data: dates, gridIndex: 3, show: false }
         ],
         yAxis: [
-            { scale: true, gridIndex: 0, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLine: { lineStyle: { color: '#8392A5' } } },
+            { scale: true, gridIndex: 0, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLine: { lineStyle: { color: '#8392A5' } }, axisLabel: { color: '#aaa' } },
             { scale: true, gridIndex: 1, splitLine: { show: false }, axisLabel: { show: false } },
             { scale: true, gridIndex: 2, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLabel: { show: false } },
             { scale: true, gridIndex: 3, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLabel: { show: false } }
         ],
         dataZoom: [
             { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100 },
-            { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100, bottom: 5, height: 20, borderColor: '#333', fillerColor: 'rgba(100,100,100,0.5)' }
+            { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100, bottom: 5, height: 20, borderColor: '#333', fillerColor: 'rgba(100,100,100,0.5)', textStyle: {color: '#aaa'} }
         ],
         series: [
             // KLine
             {
                 type: 'candlestick',
-                name: '日线',
+                name: 'KLine',
                 data: klineData,
                 xAxisIndex: 0,
                 yAxisIndex: 0,

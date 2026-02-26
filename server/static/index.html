@@ -13,7 +13,7 @@
         <div class="form-group">
             <label>股票代码:</label>
             <input type="text" id="stockCode" value="000001" placeholder="例如 000001">
-            <button onclick="loadData()">加载数据</button>
+            <button class="action-btn" onclick="loadData()">加载数据</button>
         </div>
         <hr>
         <div class="form-group">
@@ -28,7 +28,7 @@
             <label>初始资金:</label>
             <input type="number" id="initialCash" value="100000">
         </div>
-        <button onclick="runBacktest()">执行回测</button>
+        <button class="action-btn" onclick="runBacktest()">执行回测</button>
 
         <div id="backtestResult" class="result-box">
             <!-- 回测结果显示区域 -->
@@ -38,6 +38,14 @@
     </div>
 
     <div class="main-content">
+        <div class="chart-toolbar">
+            <div class="stock-info" id="stockInfo">等待加载数据...</div>
+            <div class="period-switch">
+                <button class="p-btn active" id="btn-daily" onclick="switchPeriod('daily')">日线</button>
+                <button class="p-btn" id="btn-weekly" onclick="switchPeriod('weekly')">周线</button>
+                <button class="p-btn" id="btn-monthly" onclick="switchPeriod('monthly')">月线</button>
+            </div>
+        </div>
         <div id="chartContainer"></div>
     </div>
 

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -26,11 +26,47 @@ class BacktestRequest(BaseModel):
     end_date: Optional[str] = None
     initial_cash: float = 100000.0
 
+def resample_data(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """
+    Resample daily data to specified period.
+    period: 'weekly', 'monthly'
+    """
+    if df.empty: return df
+
+    # Ensure index is DatetimeIndex
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    freq_map = {
+        'weekly': 'W-FRI',
+        'monthly': 'ME'
+    }
+
+    if period not in freq_map:
+        return df # Return daily if unknown
+
+    freq = freq_map[period]
+
+    # Resample Logic
+    resampled = df.resample(freq).agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum'
+    })
+
+    # Drop empty periods (e.g. holidays causing empty weeks)
+    resampled.dropna(subset=['Close'], inplace=True)
+
+    # Set index name
+    resampled.index.name = 'Date'
+
+    return resampled
+
 @app.get("/data/{code}")
-def get_stock_data_api(code: str):
+def get_stock_data_api(code: str, period: str = Query('daily', regex='^(daily|weekly|monthly)$')):
     # 获取数据并返回 JSON (默认从 2020-01-01 开始)
-    # 使用 get_stock_data 时，如果 end_date 为 None，provider.py 会尝试获取到最新。
-    # 但 provider.py 需要 end_date 字符串比较，所以必须传入。
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
     start_date = '2020-01-01'
 
@@ -38,16 +74,17 @@ def get_stock_data_api(code: str):
     if df.empty:
         return {"error": "No data found"}
 
+    # Resample if needed
+    if period != 'daily':
+        df = resample_data(df, period)
+
     # Calculate Indicators for Frontend Display
-    # Use BacktestEngine's logic for consistency
     engine = BacktestEngine(df)
     df = engine.calculate_indicators(df)
 
     # Handle NaN
     df = df.fillna(0)
 
-    # 转为 JSON (date ISO format)
-    # Reset index to include Date column
     # Ensure index name is Date
     if df.index.name != 'Date':
         df.index.name = 'Date'
@@ -56,7 +93,6 @@ def get_stock_data_api(code: str):
 
     # Check if Date column exists after reset
     if 'Date' not in df_reset.columns:
-         # Fallback: maybe index was unnamed, so it became 'index'
          if 'index' in df_reset.columns:
              df_reset.rename(columns={'index': 'Date'}, inplace=True)
 
@@ -65,16 +101,13 @@ def get_stock_data_api(code: str):
         try:
             df_reset['Date'] = df_reset['Date'].dt.strftime('%Y-%m-%d')
         except Exception:
-            # Maybe already string?
             df_reset['Date'] = df_reset['Date'].astype(str)
 
     records = df_reset.to_dict(orient='records')
-    return {"code": code, "data": records}
+    return {"code": code, "period": period, "data": records}
 
 @app.post("/backtest")
 async def run_backtest(req: BacktestRequest):
-    # 1. Fetch Data
-    # provider needs end_date string
     end_date = req.end_date if req.end_date else datetime.datetime.now().strftime('%Y-%m-%d')
     start_date = req.start_date
 
@@ -82,12 +115,9 @@ async def run_backtest(req: BacktestRequest):
     if df.empty:
         return {"error": "No data for backtest"}
 
-    # 2. Initialize Engine
     engine = BacktestEngine(df)
     engine.cash = req.initial_cash
 
-    # 3. Run
-    # Progress callback (just print for now, or websocket later)
     async def progress(p):
         print(f"Progress: {p}%")
 
