@@ -43,10 +43,8 @@ class DatabaseManager:
 
     def save_stock_data(self, code: str, df: pd.DataFrame):
         """
-        全量覆盖保存股票数据。
-        1. 开启事务
-        2. 删除该 code 的所有旧数据
-        3. 批量插入新数据
+        保存股票数据（支持增量更新）。
+        使用 INSERT OR REPLACE 覆盖相同日期的记录。
         """
         if df.empty:
             logger.warning(f"Empty DataFrame provided for {code}, skipping save.")
@@ -57,11 +55,6 @@ class DatabaseManager:
             with conn: # 自动提交事务
                 cursor = conn.cursor()
 
-                # 1. 删除旧数据
-                logger.info(f"Deleting old data for {code}...")
-                cursor.execute("DELETE FROM stock_daily_qfq WHERE code = ?", (code,))
-
-                # 2. 准备插入数据
                 # df 索引是 Date (datetime)，我们需要将其转换为字符串 (YYYY-MM-DD)
                 records = []
                 for date_idx, row in df.iterrows():
@@ -77,13 +70,13 @@ class DatabaseManager:
                         float(row['Volume'])
                     ))
 
-                # 3. 批量插入
-                logger.info(f"Inserting {len(records)} records for {code}...")
-                insert_sql = """
-                INSERT INTO stock_daily_qfq (code, date, open, close, high, low, volume)
+                logger.info(f"Upserting {len(records)} records for {code}...")
+                # 使用 REPLACE INTO 来处理重复键 (code, date)
+                upsert_sql = """
+                INSERT OR REPLACE INTO stock_daily_qfq (code, date, open, close, high, low, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """
-                cursor.executemany(insert_sql, records)
+                cursor.executemany(upsert_sql, records)
 
             logger.info(f"Successfully saved data for {code}.")
 

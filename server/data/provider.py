@@ -15,60 +15,74 @@ class DataProvider:
     """
     def __init__(self, db_path="market_data.db"):
         self.db_manager = DatabaseManager(db_path)
+        # Memory Cache for Update Check: {code: timestamp}
+        self._last_update_check = {}
+        # Update Cooldown (e.g. 4 hours)
+        self.UPDATE_COOLDOWN = timedelta(hours=4)
 
     def get_data(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         获取股票数据 (优先查询数据库，过期或缺失则调用 AkShare 更新)。
 
-        参数:
-            code (str): 股票代码
-            start_date (str): 回测开始日期
-            end_date (str): 回测结束日期
-
-        返回:
-            pd.DataFrame
+        优化：引入内存缓存，避免短时间内重复检查更新。
         """
-        # 1. 检查数据库中该股票的最新日期
-        latest_date_str = self.db_manager.get_latest_date(code)
+        # 0. Check Memory Cache (Cooldown)
+        now = datetime.now()
+        last_check = self._last_update_check.get(code)
+
+        need_db_check = True
+        if last_check and (now - last_check) < self.UPDATE_COOLDOWN:
+            # Recently updated, skip DB date check and fetch
+            logger.debug(f"Skipping update check for {code} (Cached)")
+            need_db_check = False
 
         need_update = False
-        today = datetime.now().date()
 
-        if not latest_date_str:
-            # 数据库无数据
-            logger.info(f"No data for {code} in DB. Will fetch full history.")
-            need_update = True
-        else:
-            # 数据库有数据，检查是否过期
-            # 如果本地最新日期 落后于 昨天 (today - 1 day)
-            # 即昨天及之前的数据应该已经收盘并可获取
-            latest_date = datetime.strptime(latest_date_str, "%Y-%m-%d").date()
-            req_end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        if need_db_check:
+            # 1. 检查数据库中该股票的最新日期
+            latest_date_str = self.db_manager.get_latest_date(code)
+            today_date = now.date()
 
-            # 判断逻辑:
-            # 1. 本地最新日期 < 昨天 (数据旧)
-            if latest_date < (today - timedelta(days=1)):
-                 logger.info(f"Data for {code} is stale (latest: {latest_date}). Will fetch update.")
-                 need_update = True
+            if not latest_date_str:
+                # 数据库无数据
+                logger.info(f"No data for {code} in DB. Will fetch full history.")
+                need_update = True
+            else:
+                # 数据库有数据，检查是否过期
+                latest_date = datetime.strptime(latest_date_str, "%Y-%m-%d").date()
+                req_end = datetime.strptime(end_date, "%Y-%m-%d").date()
 
-            # 2. 请求的结束日期 > 本地最新日期 (范围不够)
-            elif req_end > latest_date:
-                 logger.info(f"Requested range {end_date} exceeds DB latest date {latest_date}. Will fetch update.")
-                 need_update = True
+                # 判断逻辑:
+                # 1. 本地最新日期 < 昨天 (数据旧) 且 请求范围覆盖了今天
+                #    注意：如果是盘中，AkShare 也许能拿到今天的，但我们通常只关心收盘。
+                #    保守策略：只要本地日期比昨天旧，就尝试更新一次。
+                if latest_date < (today_date - timedelta(days=1)):
+                     logger.info(f"Data for {code} is stale (latest: {latest_date}). Will fetch update.")
+                     need_update = True
+
+                # 2. 请求的结束日期 > 本地最新日期 (范围不够)
+                elif req_end > latest_date:
+                     logger.info(f"Requested range {end_date} exceeds DB latest date {latest_date}. Will fetch update.")
+                     need_update = True
 
         if need_update:
             # 调用 AkShare 拉取全量数据
             try:
+                logger.info(f"Fetching online data for {code}...")
                 # fetch_stock_daily 内部包含重试逻辑
                 new_df = fetch_stock_daily(code)
                 if not new_df.empty:
                     # 全量覆盖保存
                     self.db_manager.save_stock_data(code, new_df)
+                    # Update cache
+                    self._last_update_check[code] = now
                 else:
                     logger.warning(f"AkShare returned empty data for {code}. Using existing DB data if available.")
+                    # Mark checked even if empty to prevent spamming
+                    self._last_update_check[code] = now
             except Exception as e:
                 logger.error(f"Failed to update data for {code}: {e}")
-                # 发生异常时，尝试使用数据库中的旧数据降级运行 (即便可能不准确/复权不对)
+                # 发生异常时，尝试使用数据库中的旧数据降级运行
 
         # 2. 从数据库查询所需时间段的数据
         df = self.db_manager.get_stock_data(code, start_date, end_date)
