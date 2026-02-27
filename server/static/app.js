@@ -181,7 +181,13 @@ async function syncData() {
             if (status.status === 'completed' || status.status === 'error') {
                 clearInterval(syncInterval);
                 if (status.status === 'completed') {
-                    alert("数据同步完成！");
+                    if (status.message.includes("up to date")) {
+                        document.getElementById('syncTime').innerText = status.message;
+                        alert(status.message);
+                    } else {
+                        document.getElementById('syncTime').innerText = "Last Sync: " + new Date().toLocaleString();
+                        alert("数据同步完成！");
+                    }
                     text.innerText = "Completed";
                 } else {
                     alert("同步出错: " + status.message);

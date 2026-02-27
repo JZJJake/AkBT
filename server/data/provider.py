@@ -23,11 +23,18 @@ class DataProvider:
         self.UPDATE_COOLDOWN = timedelta(hours=4)
         # Background task state
         self._sync_status = {"status": "idle", "progress": 0, "total": 0, "message": ""}
+        self.is_syncing = False
+        self.last_full_sync = None
 
     def get_data(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         获取股票数据 (优先查询数据库，过期或缺失则调用 TDX 更新)。
         """
+        # Lock protection during sync
+        if self.is_syncing:
+            logger.warning(f"System syncing, returning local data for {code}.")
+            return self.db_manager.get_stock_data(code, start_date, end_date)
+
         now = datetime.now()
         last_check = self._last_update_check.get(code)
 
@@ -88,9 +95,16 @@ class DataProvider:
         """
         后台任务：同步全市场数据 (使用 Sina 获取列表，TDX 获取数据)
         """
-        if self._sync_status["status"] == "running":
+        if self.is_syncing or self._sync_status["status"] == "running":
             return
 
+        # Check if already latest (Simple check: synced < 4 hours ago)
+        # Ideally check if today is trading day and time > 16:00 and last_sync > 16:00
+        if self.last_full_sync and (datetime.now() - self.last_full_sync) < timedelta(hours=4):
+            self._sync_status = {"status": "completed", "progress": 100, "message": f"Data up to date (Last: {self.last_full_sync.strftime('%H:%M')})"}
+            return
+
+        self.is_syncing = True
         self._sync_status = {"status": "running", "progress": 0, "total": 0, "message": "Fetching stock list (Sina)..."}
 
         try:
@@ -136,12 +150,15 @@ class DataProvider:
 
             self._sync_status["status"] = "completed"
             self._sync_status["message"] = f"Sync completed. Processed {processed} stocks."
+            self.last_full_sync = datetime.now()
             logger.info("Full market sync completed successfully.")
 
         except Exception as e:
             self._sync_status["status"] = "error"
             self._sync_status["message"] = str(e)
             logger.error(f"Sync task failed: {e}")
+        finally:
+            self.is_syncing = False
 
     def get_sync_status(self):
         return self._sync_status
