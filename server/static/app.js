@@ -1,6 +1,7 @@
 let chartInstance = null;
 let currentPeriod = 'daily'; // Default period
 let syncInterval = null;
+let defaultZoomBars = 200;
 
 // Sidebar Resize Logic
 const sidebar = document.getElementById('sidebar');
@@ -279,6 +280,39 @@ function selectStock(code) {
     loadData();
 }
 
+function toggleSettings() {
+    const modal = document.getElementById('settingsModal');
+    if (modal.style.display === 'block') {
+        modal.style.display = 'none';
+    } else {
+        document.getElementById('defaultZoom').value = defaultZoomBars;
+        modal.style.display = 'block';
+    }
+}
+
+function saveSettings() {
+    const val = parseInt(document.getElementById('defaultZoom').value);
+    if (isNaN(val) || val < 0) {
+        alert("请输入有效的数字");
+        return;
+    }
+    defaultZoomBars = val;
+    toggleSettings();
+    // Re-render chart if active
+    if (chartInstance) {
+        // We can just get current option and update zoom, but easier to reload
+        loadData();
+    }
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('settingsModal');
+    if (event.target == modal) {
+        modal.style.display = "none";
+    }
+}
+
 function renderChart(data, code, period) {
     if (chartInstance) {
         chartInstance.dispose();
@@ -325,6 +359,14 @@ function renderChart(data, code, period) {
 
     const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[period];
 
+    // Calculate Zoom
+    const totalBars = data.length;
+    let startPct = 0;
+    if (defaultZoomBars > 0 && totalBars > defaultZoomBars) {
+        startPct = 100 - (defaultZoomBars / totalBars * 100);
+        if (startPct < 0) startPct = 0;
+    }
+
     const option = {
         backgroundColor: '#1e1e1e', // Match CSS
         animation: false,
@@ -360,8 +402,8 @@ function renderChart(data, code, period) {
             { scale: true, gridIndex: 3, splitLine: { show: true, lineStyle: { color: '#333' } }, axisLabel: { show: false } }
         ],
         dataZoom: [
-            { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100 },
-            { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: 80, end: 100, bottom: 5, height: 20, borderColor: '#333', fillerColor: 'rgba(100,100,100,0.5)', textStyle: {color: '#aaa'} }
+            { type: 'inside', xAxisIndex: [0, 1, 2, 3], start: startPct, end: 100 },
+            { type: 'slider', xAxisIndex: [0, 1, 2, 3], start: startPct, end: 100, bottom: 5, height: 20, borderColor: '#333', fillerColor: 'rgba(100,100,100,0.5)', textStyle: {color: '#aaa'} }
         ],
         series: [
             // KLine
