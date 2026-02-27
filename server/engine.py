@@ -94,6 +94,40 @@ class BacktestEngine:
         resampled.dropna(subset=['Close'], inplace=True)
         return resampled
 
+    def calculate_slope_xl(self, j_series):
+        """
+        Calculate XL slope based on user formula:
+        DXL = IF(J > REF(J,1), REF(DXL,1), J)
+        XL = (J - REF(J,1)) / DXL
+        """
+        if len(j_series) < 2:
+            return pd.Series([0]*len(j_series), index=j_series.index)
+
+        j_values = j_series.values
+        dxl = np.zeros_like(j_values, dtype=float)
+        xl = np.zeros_like(j_values, dtype=float)
+
+        # Init
+        dxl[0] = float(j_values[0])
+        xl[0] = 0
+
+        for i in range(1, len(j_values)):
+            j_curr = j_values[i]
+            j_prev = j_values[i-1]
+
+            if j_curr > j_prev:
+                dxl[i] = dxl[i-1]
+            else:
+                dxl[i] = j_curr
+
+            denom = dxl[i]
+            if abs(denom) < 1e-9: # Avoid div by zero
+                xl[i] = 0
+            else:
+                xl[i] = (j_curr - j_prev) / denom
+
+        return pd.Series(xl, index=j_series.index)
+
     def check_signal_now(self):
         """
         FAST Screener check:
@@ -152,13 +186,8 @@ class BacktestEngine:
         w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
 
         # 4. J Logic: (J > Max(last 5)) OR (Slope > Prev Slope)
-        # J Max(last 5) means Max of J[t-5]...J[t-1] ? Or inclusive?
-        # "Greater than peak of last 5 cycles" usually implies breaking a recent high.
-        # I will use shift(1).rolling(5).max()
 
-        # Efficient calculation using pandas series
-        # But here we only need it for the last bar.
-        # Extract last 5 J values (t-5 to t-1)
+        # J Breakout
         last_j_series = weekly_df['J'].iloc[-6:-1]
         if len(last_j_series) < 5:
             w_j_breakout = False
@@ -166,10 +195,14 @@ class BacktestEngine:
             prev_5_max = last_j_series.max()
             w_j_breakout = get_val(w_curr, 'J') > prev_5_max
 
-        # Slope Logic
-        slope_curr = get_val(w_curr, 'J') - get_val(w_prev, 'J')
-        slope_prev = get_val(w_prev, 'J') - get_val(w_prev2, 'J')
-        w_j_accel = slope_curr > slope_prev
+        # Slope Logic (User Formula XL)
+        xl_series = self.calculate_slope_xl(weekly_df['J'])
+        if len(xl_series) >= 2:
+            xl_curr = xl_series.iloc[-1]
+            xl_prev = xl_series.iloc[-2]
+            w_j_accel = xl_curr > xl_prev
+        else:
+            w_j_accel = False
 
         w_j_complex = w_j_breakout or w_j_accel
 
@@ -301,9 +334,14 @@ class BacktestEngine:
             else:
                 w_j_breakout = False
 
-            slope_curr = get_val(w_curr, 'J') - get_val(w_prev, 'J')
-            slope_prev = get_val(w_prev, 'J') - get_val(w_prev2, 'J')
-            w_j_accel = slope_curr > slope_prev
+            # Slope Logic (User Formula XL)
+            xl_series = self.calculate_slope_xl(weekly_df['J'])
+            if len(xl_series) >= 2:
+                xl_curr = xl_series.iloc[-1]
+                xl_prev = xl_series.iloc[-2]
+                w_j_accel = xl_curr > xl_prev
+            else:
+                w_j_accel = False
 
             cond2 = w_dif_gt_dea and w_hist_up and w_j_up and (w_j_breakout or w_j_accel)
 
