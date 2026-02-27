@@ -10,7 +10,7 @@ import os
 import datetime
 from .data.provider import get_stock_data, trigger_sync, get_sync_progress, provider
 from .engine import BacktestEngine
-from .data.akshare_fetcher import fetch_all_stock_codes
+# from .data.akshare_fetcher import fetch_all_stock_codes # Deprecated
 
 app = FastAPI()
 
@@ -141,16 +141,28 @@ async def run_screener(req: ScreenerRequest):
 
             # Let's perform a lightweight check here or use `run` (robust).
             res = await engine.run()
-            bars = pd.read_json(res['bars'], orient='index')
+            # Parse JSON back to DataFrame is slow.
+            # `res['bars']` is a JSON string.
+            # Optimization: Just check the last few days of `engine.daily_processed`?
+            # Accessing `engine.daily_processed` directly is better if available.
+            # But `run` returns a dict.
 
-            if 'buy_signal' in bars.columns:
+            bars = pd.read_json(res['bars'], orient='index')
+            if not bars.empty and 'buy_signal' in bars.columns:
+                # Check LAST row for signal? Or ANY signal in recent range?
+                # Screener usually checks "Is it a buy NOW?".
+                # So check the last available trading day.
                 last_row = bars.iloc[-1]
-                if last_row['buy_signal']:
-                    results.append({
-                        "code": code,
-                        "date": str(last_row.name).split(' ')[0],
-                        "price": last_row['Close']
-                    })
+
+                # Verify date is recent (within 5 days) to avoid old data signals
+                last_date = pd.to_datetime(last_row.name)
+                if (datetime.datetime.now() - last_date).days < 10:
+                    if last_row['buy_signal']:
+                        results.append({
+                            "code": code,
+                            "date": str(last_row.name).split(' ')[0],
+                            "price": last_row['Close']
+                        })
         except Exception:
             continue
 

@@ -210,11 +210,28 @@ class BacktestEngine:
             cond_daily = d_j_ok and d_hist_red
 
             # --- 综合买入 ---
-            signal_buy = cond_month and cond_week and cond_daily
+            # Strict logic: Monthly + Weekly + Daily
+            # signal_buy = cond_month and cond_week and cond_daily
+
+            # Relaxed Condition 3 ONLY (per user request: "First select Buy Condition 3, this is most common")
+            # Condition 3: (Daily J turn up & < 80) OR (Daily DEA turn up)
+
+            # 1. Daily J turn up & < 80
+            d_j_turn_up = (get_val(d_curr, 'J') > get_val(d_prev, 'J')) and \
+                          (get_val(d_prev, 'J') <= get_val(d_prev2, 'J'))
+            d_j_ok = d_j_turn_up and (get_val(d_curr, 'J') < 80)
+
+            # 2. Daily DEA turn up (Current > Prev > Prev2 ? Or just Current > Prev & Prev <= Prev2)
+            d_dea_turn_up = (get_val(d_curr, 'MACD_DEA') > get_val(d_prev, 'MACD_DEA')) and \
+                            (get_val(d_prev, 'MACD_DEA') <= get_val(d_prev2, 'MACD_DEA'))
+
+            cond_daily_strict = d_j_ok or d_dea_turn_up
+
+            signal_buy = cond_daily_strict
 
             # --- 执行交易 ---
             if signal_buy:
-                print(f"[{current_date.date()}] Buy Signal Triggered! Price: {d_curr['Close']}")
+                # print(f"[{current_date.date()}] Buy Signal Triggered! Price: {d_curr['Close']}")
                 # Mark signal in DataFrame for frontend (Even if not executed due to cash/pos)
                 self.daily_processed.at[current_date, 'buy_signal'] = True
 
