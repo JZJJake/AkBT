@@ -131,9 +131,13 @@ class BacktestEngine:
     def check_signal_now(self):
         """
         FAST Screener check:
-        Strategy: Condition 2 OR Condition 3
+        Strategy: Cond 1 (Monthly) AND Cond 2 (Weekly) AND Cond 3 (Daily)
         """
         if len(self.raw_data) < 50: return False
+
+        def get_val(row, key, default=0):
+            val = row.get(key, default)
+            return 0 if pd.isna(val) else val
 
         # --- 1. Daily Indicators ---
         daily_df = self.calculate_indicators(self.raw_data.copy())
@@ -143,72 +147,73 @@ class BacktestEngine:
         d_prev = daily_df.iloc[-2]
         d_prev2 = daily_df.iloc[-3]
 
-        def get_val(row, key, default=0):
-            val = row.get(key, default)
-            return 0 if pd.isna(val) else val
-
-        # --- Condition 3: Daily J Turn Up ---
-        # Modified: Just J turn up
+        # --- Condition 3: Daily Reversal ---
+        # J Turn Up AND J < 80
         j_curr = get_val(d_curr, 'J')
         j_prev = get_val(d_prev, 'J')
         j_prev2 = get_val(d_prev2, 'J')
 
-        cond3_j_turn_up = (j_curr > j_prev) and (j_prev <= j_prev2)
+        d_j_turn_up = (j_curr > j_prev) and (j_prev <= j_prev2)
+        cond3 = d_j_turn_up and (j_curr < 80)
 
-        if cond3_j_turn_up:
-            return True
+        if not cond3: return False
 
-        # --- Condition 2: Weekly Logic ---
-        # If Cond 3 not met, check Cond 2 (or checking both is same if OR)
-
-        # Resample Weekly
+        # --- Condition 2: Weekly Trend ---
         weekly_df = self.raw_data.resample('W-FRI').agg({
             'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
         })
         weekly_df.dropna(subset=['Close'], inplace=True)
         weekly_df = self.calculate_indicators(weekly_df)
 
-        # Ensure indicators exist
-        if len(weekly_df) < 6 or 'J' not in weekly_df.columns or 'MACD_DIF' not in weekly_df.columns:
+        if len(weekly_df) < 3 or 'J' not in weekly_df.columns or 'MACD_DIF' not in weekly_df.columns:
             return False
 
         w_curr = weekly_df.iloc[-1]
         w_prev = weekly_df.iloc[-2]
-        w_prev2 = weekly_df.iloc[-3]
 
-        # 1. Weekly DIF > DEA
+        # 1. DIF > DEA
         w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
-
-        # 2. Weekly MACD Hist > Prev Hist
+        # 2. Hist > Prev Hist
         w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
-
-        # 3. Weekly J Up
+        # 3. J Up
         w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
-
-        # 4. J Logic: (J > Max(last 5)) OR (Slope > Prev Slope)
-
-        # J Breakout
-        last_j_series = weekly_df['J'].iloc[-6:-1]
-        if len(last_j_series) < 5:
-            w_j_breakout = False
-        else:
-            prev_5_max = last_j_series.max()
-            w_j_breakout = get_val(w_curr, 'J') > prev_5_max
-
-        # Slope Logic (User Formula XL)
-        xl_series = self.calculate_slope_xl(weekly_df['J'])
-        if len(xl_series) >= 2:
-            xl_curr = xl_series.iloc[-1]
-            xl_prev = xl_series.iloc[-2]
-            w_j_accel = xl_curr > xl_prev
+        # 4. Slope Accel
+        w_xl_series = self.calculate_slope_xl(weekly_df['J'])
+        if len(w_xl_series) >= 2:
+            w_xl_curr = w_xl_series.iloc[-1]
+            w_xl_prev = w_xl_series.iloc[-2]
+            w_j_accel = w_xl_curr > w_xl_prev
         else:
             w_j_accel = False
 
-        w_j_complex = w_j_breakout or w_j_accel
+        cond2 = w_dif_gt_dea and w_hist_up and w_j_up and w_j_accel
 
-        cond2 = w_dif_gt_dea and w_hist_up and w_j_up and w_j_complex
+        if not cond2: return False
 
-        return cond2
+        # --- Condition 1: Monthly Trend ---
+        monthly_df = self.raw_data.resample('ME').agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+        })
+        monthly_df.dropna(subset=['Close'], inplace=True)
+        monthly_df = self.calculate_indicators(monthly_df)
+
+        if len(monthly_df) < 3 or 'J' not in monthly_df.columns or 'MACD_DIF' not in monthly_df.columns:
+            # If monthly data is insufficient, strategy fails strict check
+            return False
+
+        m_curr = monthly_df.iloc[-1]
+        m_prev = monthly_df.iloc[-2]
+
+        # 1. DIF > DEA
+        m_dif_gt_dea = get_val(m_curr, 'MACD_DIF') > get_val(m_curr, 'MACD_DEA')
+        # 2. Hist > Prev Hist
+        m_hist_up = get_val(m_curr, 'MACD_HIST') > get_val(m_prev, 'MACD_HIST')
+        # 3. J Up
+        m_j_up = get_val(m_curr, 'J') > get_val(m_prev, 'J')
+
+        cond1 = m_dif_gt_dea and m_hist_up and m_j_up
+
+        return cond1
 
     async def run(self, progress_callback=None):
         """执行回测循环 (Async for WebSocket)"""
@@ -216,8 +221,15 @@ class BacktestEngine:
         # 1. 计算日线指标 (全量计算，遍历时取值)
         self.daily_processed = self.calculate_indicators(self.raw_data.copy())
 
+        # Calculate Daily XL Slope for Sell Logic
+        if 'J' in self.daily_processed.columns:
+            xl_series = self.calculate_slope_xl(self.daily_processed['J'])
+            self.daily_processed['XL'] = xl_series
+        else:
+            self.daily_processed['XL'] = 0.0
+
         # Fill NaN
-        cols_to_fill = ['MACD_DIF', 'MACD_HIST', 'MACD_DEA', 'K', 'D', 'J', 'EMA20']
+        cols_to_fill = ['MACD_DIF', 'MACD_HIST', 'MACD_DEA', 'K', 'D', 'J', 'EMA20', 'XL']
         for col in cols_to_fill:
             if col in self.daily_processed.columns:
                 self.daily_processed[col] = self.daily_processed[col].fillna(0)
@@ -239,7 +251,6 @@ class BacktestEngine:
                 await progress_callback(progress)
 
             # --- 获取日线数据 ---
-            # t (今天), t-1 (昨天)
             d_curr = self.daily_processed.iloc[i]
             d_prev = self.daily_processed.iloc[i-1]
             d_prev2 = self.daily_processed.iloc[i-2]
@@ -257,101 +268,57 @@ class BacktestEngine:
             if len(monthly_df) > lookback: monthly_df = monthly_df.iloc[-lookback:]
             monthly_df = self.calculate_indicators(monthly_df)
 
-            if len(weekly_df) < 4 or len(monthly_df) < 4: continue
+            if len(weekly_df) < 3 or 'J' not in weekly_df.columns: continue
+            if len(monthly_df) < 3 or 'J' not in monthly_df.columns: continue
 
             # 提取最后几行
             w_curr = weekly_df.iloc[-1]
             w_prev = weekly_df.iloc[-2]
-            w_prev2 = weekly_df.iloc[-3]
-            w_prev3 = weekly_df.iloc[-4]
 
             m_curr = monthly_df.iloc[-1]
             m_prev = monthly_df.iloc[-2]
 
             # --- 策略条件判断 ---
-
-            # 辅助: 安全取值
             def get_val(row, key, default=0):
                 return row[key] if key in row else default
 
-            # --- 月线条件 ---
-            # 1. DIF > DEA
-            m_dif_gt_dea = get_val(m_curr, 'MACD_DIF') > get_val(m_curr, 'MACD_DEA')
-            # 2. J 向上 (Current > Prev) 且 J < 80
-            m_j_up = (get_val(m_curr, 'J') > get_val(m_prev, 'J')) and (get_val(m_curr, 'J') < 80)
-            # 3. MACD 柱子红色 (Current > Prev)
-            m_hist_red = get_val(m_curr, 'MACD_HIST') > get_val(m_prev, 'MACD_HIST')
-
-            cond_month = m_dif_gt_dea and m_j_up and m_hist_red
-
-            # --- 周线条件 ---
-            # 1. DIF > DEA
-            w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
-            # 2. MACD 柱子红色
-            w_hist_red = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
-            # 3. J < 80 且 (J上拐 OR 上拐后第二周期继续向上)
-            # J上拐: t > t-1, t-1 <= t-2
-            w_j_turn_up = (get_val(w_curr, 'J') > get_val(w_prev, 'J')) and \
-                          (get_val(w_prev, 'J') <= get_val(w_prev2, 'J'))
-
-            # 上拐后第二周期: t > t-1 > t-2, t-2 <= t-3
-            w_j_cont_up = (get_val(w_curr, 'J') > get_val(w_prev, 'J')) and \
-                          (get_val(w_prev, 'J') > get_val(w_prev2, 'J')) and \
-                          (get_val(w_prev2, 'J') <= get_val(w_prev3, 'J'))
-
-            w_j_ok = (get_val(w_curr, 'J') < 80) and (w_j_turn_up or w_j_cont_up)
-
-            cond_week = w_dif_gt_dea and w_hist_red and w_j_ok
-
-            # --- 日线条件 ---
-            # 1. J上拐 且 J < 80
+            # --- Condition 3: Daily Reversal ---
+            # J Turn Up AND J < 80
             d_j_turn_up = (get_val(d_curr, 'J') > get_val(d_prev, 'J')) and \
                           (get_val(d_prev, 'J') <= get_val(d_prev2, 'J'))
-            d_j_ok = d_j_turn_up and (get_val(d_curr, 'J') < 80)
+            cond3 = d_j_turn_up and (get_val(d_curr, 'J') < 80)
 
-            # 2. MACD 柱子红色
-            d_hist_red = get_val(d_curr, 'MACD_HIST') > get_val(d_prev, 'MACD_HIST')
-
-            cond_daily = d_j_ok and d_hist_red
-
-            # --- Condition 3: Daily J Turn Up (Modified) ---
-            cond3 = (get_val(d_curr, 'J') > get_val(d_prev, 'J')) and \
-                    (get_val(d_prev, 'J') <= get_val(d_prev2, 'J'))
-
-            # --- Condition 2: Weekly Logic ---
-            # 1. Weekly DIF > DEA
+            # --- Condition 2: Weekly Trend ---
+            # 1. DIF > DEA
             w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
             # 2. Hist > Prev Hist
             w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
             # 3. J Up
             w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
-
-            # 4. J Logic
-            if len(weekly_df) >= 6:
-                last_j_series = weekly_df['J'].iloc[-6:-1]
-                prev_5_max = last_j_series.max()
-                w_j_breakout = get_val(w_curr, 'J') > prev_5_max
-            else:
-                w_j_breakout = False
-
-            # Slope Logic (User Formula XL)
-            xl_series = self.calculate_slope_xl(weekly_df['J'])
-            if len(xl_series) >= 2:
-                xl_curr = xl_series.iloc[-1]
-                xl_prev = xl_series.iloc[-2]
-                w_j_accel = xl_curr > xl_prev
+            # 4. XL Slope Accel
+            w_xl_series = self.calculate_slope_xl(weekly_df['J'])
+            if len(w_xl_series) >= 2:
+                w_j_accel = w_xl_series.iloc[-1] > w_xl_series.iloc[-2]
             else:
                 w_j_accel = False
 
-            cond2 = w_dif_gt_dea and w_hist_up and w_j_up and (w_j_breakout or w_j_accel)
+            cond2 = w_dif_gt_dea and w_hist_up and w_j_up and w_j_accel
 
-            # Combined
-            signal_buy = cond3 or cond2
+            # --- Condition 1: Monthly Trend ---
+            # 1. DIF > DEA
+            m_dif_gt_dea = get_val(m_curr, 'MACD_DIF') > get_val(m_curr, 'MACD_DEA')
+            # 2. Hist > Prev Hist
+            m_hist_up = get_val(m_curr, 'MACD_HIST') > get_val(m_prev, 'MACD_HIST')
+            # 3. J Up
+            m_j_up = get_val(m_curr, 'J') > get_val(m_prev, 'J')
+
+            cond1 = m_dif_gt_dea and m_hist_up and m_j_up
+
+            # Combined (Strict AND)
+            signal_buy = cond1 and cond2 and cond3
 
             # --- 执行交易 ---
             if signal_buy:
-                # print(f"[{current_date.date()}] Buy Signal Triggered! Price: {d_curr['Close']}")
-                # Mark signal in DataFrame for frontend (Even if not executed due to cash/pos)
                 self.daily_processed.at[current_date, 'buy_signal'] = True
 
             if signal_buy and self.position == 0:
@@ -372,12 +339,7 @@ class BacktestEngine:
                         "reason": "Strategy Signal"
                     })
 
-            # --- 卖出逻辑 (简单止损/止盈) ---
-            # 暂时沿用之前的逻辑或简单持有?
-            # 用户只定义了买入策略，没详细定义卖出。
-            # 沿用之前的: 收盘 < 买入 * 0.97 止损
-            # 或者: 日线 MACD 缩小 且 (J高位下拐 或 死叉)
-
+            # --- 卖出逻辑 ---
             if self.position == 1:
                 should_sell = False
                 sell_reason = ""
@@ -387,15 +349,14 @@ class BacktestEngine:
                     should_sell = True
                     sell_reason = "Stop Loss"
                 else:
-                    # Previous Logic: MACD shrink AND (J turn down > 80 OR J < D)
-                    macd_shrink = get_val(d_curr, 'MACD_HIST') < get_val(d_prev, 'MACD_HIST')
+                    # Signal Sell: J Down OR XL < Prev XL * 0.8
+                    j_down = get_val(d_curr, 'J') < get_val(d_prev, 'J')
 
-                    j_turn_down = (get_val(d_curr, 'J') < get_val(d_prev, 'J')) and \
-                                  (get_val(d_prev, 'J') >= get_val(d_prev2, 'J'))
-                    j_high_turn = j_turn_down and (get_val(d_prev, 'J') > 80)
-                    j_cross = get_val(d_curr, 'J') < get_val(d_curr, 'D')
+                    xl_curr = get_val(d_curr, 'XL')
+                    xl_prev = get_val(d_prev, 'XL')
+                    xl_weak = xl_curr < (xl_prev * 0.8)
 
-                    if macd_shrink and (j_high_turn or j_cross):
+                    if j_down or xl_weak:
                         should_sell = True
                         sell_reason = "Signal Sell"
 

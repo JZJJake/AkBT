@@ -67,8 +67,8 @@ class ScreenerManager:
 
                 try:
                     # Optimized Check: Only load recent data needed for indicators
-                    # Need ~100 bars for MACD stability
-                    df = provider.db_manager.get_stock_data(code, limit=200)
+                    # Need enough bars for Monthly MACD stability (~600 days = 30 months)
+                    df = provider.db_manager.get_stock_data(code, limit=600)
 
                     if df.empty or len(df) < 50: continue
 
