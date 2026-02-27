@@ -10,7 +10,8 @@ import os
 import datetime
 from .data.provider import get_stock_data, trigger_sync, get_sync_progress, provider
 from .engine import BacktestEngine
-# from .data.akshare_fetcher import fetch_all_stock_codes # Deprecated
+from .screener_manager import screener_manager
+import asyncio
 
 app = FastAPI()
 
@@ -92,81 +93,27 @@ def api_sync_status():
     return get_sync_progress()
 
 @app.post("/screener")
-async def run_screener(req: ScreenerRequest):
+async def run_screener():
     """
-    Screener based on LOCAL DB using Funnel approach.
+    Trigger the background screener task.
     """
-    # 1. Determine Scope
-    if req.codes:
-        stock_list = req.codes
-    else:
-        # Use ALL stocks in DB (assuming sync is done/partial)
-        # Or fetch all codes if DB is empty? No, rely on what's available.
-        # But user wants "Full Market".
-        # Check if DB has data.
-        conn = provider.db_manager.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT code FROM stock_daily_qfq")
-        rows = cursor.fetchall()
-        stock_list = [r[0] for r in rows]
-        conn.close()
+    asyncio.create_task(screener_manager.run_task())
+    return {"status": "started", "message": "Screener started in background."}
 
-        if not stock_list:
-            # If DB empty, fallback to default list to avoid empty result
-            stock_list = ["000001", "600519", "300059"]
-
-    target_date = req.target_date
-    results = []
-
-    # Logic: Monthly -> Weekly -> Daily (Funnel)
-    # To do this efficiently, we iterate stocks and check.
-
-    # Pre-fetch range: Need enough history for Monthly MACD
-    end_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.datetime.now() - datetime.timedelta(days=730)).strftime('%Y-%m-%d') # 2 years
-
-    for code in stock_list:
-        try:
-            # We ONLY query DB here. Screener should be fast.
-            df = provider.db_manager.get_stock_data(code, start_date, end_date)
-            if df.empty or len(df) < 50: continue
-
-            engine = BacktestEngine(df)
-
-            # Use engine's check_signal logic
-            # Refactoring engine to expose check is good, but for now we can rely on `run`
-            # `run` computes indicators and signals.
-            # Optimization: If we can make `run` skip loop if Monthly fail?
-            # Current `run` is full loop.
-
-            # Let's perform a lightweight check here or use `run` (robust).
-            res = await engine.run()
-            # Parse JSON back to DataFrame is slow.
-            # `res['bars']` is a JSON string.
-            # Optimization: Just check the last few days of `engine.daily_processed`?
-            # Accessing `engine.daily_processed` directly is better if available.
-            # But `run` returns a dict.
-
-            bars = pd.read_json(res['bars'], orient='index')
-            if not bars.empty and 'buy_signal' in bars.columns:
-                # Check LAST row for signal? Or ANY signal in recent range?
-                # Screener usually checks "Is it a buy NOW?".
-                # So check the last available trading day.
-                last_row = bars.iloc[-1]
-
-                # Verify date is recent (within 5 days) to avoid old data signals
-                last_date = pd.to_datetime(last_row.name)
-                if (datetime.datetime.now() - last_date).days < 10:
-                    if last_row['buy_signal']:
-                        results.append({
-                            "code": code,
-                            "date": str(last_row.name).split(' ')[0],
-                            "price": last_row['Close']
-                        })
-        except Exception:
-            continue
-
-    return {"count": len(results), "results": results}
+@app.get("/screener_status")
+def get_screener_status():
+    """
+    Get progress of the screener.
+    """
+    return {
+        "status": screener_manager.status,
+        "progress": screener_manager.progress,
+        "current_stock": screener_manager.current_stock,
+        "processed": screener_manager.processed_count,
+        "total": screener_manager.total_stocks,
+        "message": screener_manager.message,
+        "results": screener_manager.found_stocks
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

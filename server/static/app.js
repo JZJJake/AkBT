@@ -195,47 +195,82 @@ async function syncData() {
     }
 }
 
+let screenerInterval = null;
+
 async function runScreener() {
     const resultBox = document.getElementById('screenerResult');
-    resultBox.innerHTML = "正在选股，可能需要一些时间（基于本地数据）...";
+    const progressBox = document.getElementById('screenerProgress');
+    const scrBar = document.getElementById('scrBar');
+    const scrStatus = document.getElementById('scrStatus');
+    const scrCount = document.getElementById('scrCount');
+    const scrCurrent = document.getElementById('scrCurrent');
+
+    // Clear previous results and show progress
+    resultBox.innerHTML = "";
+    progressBox.style.display = 'block';
+    scrStatus.innerText = "Initiating...";
 
     try {
-        const resp = await fetch('/screener', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({}) // Default params
-        });
+        await fetch('/screener', { method: 'POST' });
 
-        const json = await resp.json();
+        // Start polling
+        if (screenerInterval) clearInterval(screenerInterval);
 
-        if (json.results && json.results.length > 0) {
-            let html = `<h3>选股结果 (${json.count})</h3>`;
-            html += `<div style="max-height: 300px; overflow-y: auto;">`;
+        screenerInterval = setInterval(async () => {
+            const resp = await fetch('/screener_status');
+            const status = await resp.json();
 
-            json.results.forEach(stock => {
-                html += `<div class="stock-list-item" onclick="selectStock('${stock.code}')">`;
-                html += `<strong>${stock.code}</strong>`;
-                html += `<span>${stock.date}</span>`;
-                html += `<span>¥${stock.price.toFixed(2)}</span>`;
+            // Update Progress UI
+            scrBar.style.width = status.progress + '%';
+            scrStatus.innerText = status.status === 'running' ? 'Scanning...' : status.status;
+            scrCount.innerText = `${status.processed}/${status.total}`;
+            scrCurrent.innerText = `Checking: ${status.current_stock}`;
+
+            // Live Result Update (Dynamic)
+            if (status.results && status.results.length > 0) {
+                let html = `<h3>选股结果 (${status.results.length})</h3>`;
+                html += `<div style="max-height: 300px; overflow-y: auto;">`;
+
+                // Show found stocks (Latest at top?)
+                // Usually append is better but re-render is simpler for small lists
+                const reversedResults = [...status.results].reverse();
+
+                reversedResults.forEach(stock => {
+                    html += `<div class="stock-list-item" onclick="selectStock('${stock.code}')">`;
+                    html += `<strong>${stock.code}</strong>`;
+                    html += `<span>${stock.date}</span>`;
+                    html += `<span>¥${stock.price.toFixed(2)}</span>`;
+                    html += `</div>`;
+                });
                 html += `</div>`;
-            });
-            html += `</div>`;
-            resultBox.innerHTML = html;
-        } else {
-            // Hint about Full Sync if results are empty (and maybe list was small)
-            resultBox.innerHTML = `
-                <h3>选股结果 (0)</h3>
-                <p>未发现符合条件的股票。</p>
-                <p style="color: #888; font-size: 0.8em;">
-                    提示：如果这是您第一次运行，请先点击上方“全市场数据同步”按钮，
-                    下载完整市场数据后再进行选股。
-                </p>
-            `;
-        }
+                resultBox.innerHTML = html;
+            }
+
+            if (status.status === 'completed' || status.status === 'error') {
+                clearInterval(screenerInterval);
+                scrCurrent.innerText = status.message;
+
+                if (status.results.length === 0 && status.status === 'completed') {
+                     resultBox.innerHTML = `
+                        <h3>选股结果 (0)</h3>
+                        <p>未发现符合条件的股票。</p>
+                        <p style="color: #888; font-size: 0.8em;">
+                            提示：如果这是您第一次运行，请先点击上方“全市场数据同步”按钮，
+                            下载完整市场数据后再进行选股。
+                        </p>
+                    `;
+                }
+
+                // Hide progress bar after delay (optional, keeping it visible is good feedback)
+                // setTimeout(() => { progressBox.style.display = 'none'; }, 5000);
+            }
+
+        }, 800); // Poll every 800ms
 
     } catch (e) {
         console.error(e);
-        resultBox.innerHTML = "选股出错: " + e.message;
+        resultBox.innerHTML = "Start Failed: " + e.message;
+        progressBox.style.display = 'none';
     }
 }
 

@@ -49,6 +49,18 @@
 
         <hr>
         <button class="action-btn screener-btn" onclick="runScreener()">执行选股</button>
+
+        <div id="screenerProgress" class="progress-container" style="display:none; margin-top: 10px;">
+            <div class="progress-bar">
+                <div id="scrBar" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 12px; color: #aaa; margin-top: 4px;">
+                <span id="scrStatus">正在扫描...</span>
+                <span id="scrCount">0/0</span>
+            </div>
+            <div id="scrCurrent" style="font-size: 11px; color: #666; margin-top: 2px;">Checking: ...</div>
+        </div>
+
         <div id="screenerResult" class="result-box">
             <!-- 选股结果 -->
         </div>

@@ -86,7 +86,7 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def get_stock_data(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    def get_stock_data(self, code: str, start_date: str = None, end_date: str = None, limit: int = None) -> pd.DataFrame:
         """
         查询股票数据。
         """
@@ -103,6 +103,22 @@ class DatabaseManager:
                 params.append(end_date)
 
             query += " ORDER BY date ASC"
+
+            if limit:
+                # Optimized: We need the *latest* N records, but ordered ASC.
+                # So we select DESC limit N, then subquery order ASC.
+                # Or just select * from (...) order by date ASC
+                # SQLite supports "SELECT * FROM (SELECT ... ORDER BY date DESC LIMIT ?) ORDER BY date ASC"
+                query = f"""
+                SELECT * FROM (
+                    SELECT date, open, close, high, low, volume
+                    FROM stock_daily_qfq
+                    WHERE code = ?
+                    ORDER BY date DESC
+                    LIMIT ?
+                ) ORDER BY date ASC
+                """
+                params = [code, limit]
 
             df = pd.read_sql_query(query, conn, params=params)
 

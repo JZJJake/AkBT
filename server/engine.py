@@ -12,17 +12,6 @@ class BacktestEngine:
         """
         self.raw_data = data_feed.copy()
 
-        # 预计算静态的周线和月线历史数据 (完全已收盘的历史周期)
-        self.weekly_static = self.raw_data.resample('W-FRI').agg({
-            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
-        })
-        self.weekly_static.dropna(subset=['Close'], inplace=True)
-
-        self.monthly_static = self.raw_data.resample('ME').agg({
-            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
-        })
-        self.monthly_static.dropna(subset=['Close'], inplace=True)
-
         # 交易记录
         self.trades = []
         self.equity_curve = []
@@ -104,6 +93,59 @@ class BacktestEngine:
         # Drop empty periods
         resampled.dropna(subset=['Close'], inplace=True)
         return resampled
+
+    def check_signal_now(self):
+        """
+        FAST Screener check (Optimized):
+        Calculates indicators on the *entire* available history once,
+        then checks the signal condition on the LAST available bar.
+
+        Strategy: Condition 3 (Relaxed)
+        - (Daily J turn up < 80) OR (Daily DEA turn up)
+        """
+        if len(self.raw_data) < 50: return False
+
+        # 1. Calculate Daily Indicators (Vectorized, Fast)
+        daily_df = self.calculate_indicators(self.raw_data.copy())
+
+        if len(daily_df) < 3: return False
+
+        # --- Get Last Bars ---
+        # Note: 'daily_df' contains ALL history. We check the LAST row.
+        # Screener assumes "Today".
+
+        d_curr = daily_df.iloc[-1]
+        d_prev = daily_df.iloc[-2]
+        d_prev2 = daily_df.iloc[-3]
+
+        # --- Logic: Condition 3 (Relaxed) ---
+        # (Daily J turn up & < 80) OR (Daily DEA turn up)
+
+        def get_val(row, key, default=0):
+            # Handle potential NaN
+            val = row.get(key, default)
+            return 0 if pd.isna(val) else val
+
+        # 1. Daily J turn up & < 80
+        # J_curr > J_prev AND J_prev <= J_prev2
+        j_curr = get_val(d_curr, 'J')
+        j_prev = get_val(d_prev, 'J')
+        j_prev2 = get_val(d_prev2, 'J')
+
+        d_j_turn_up = (j_curr > j_prev) and (j_prev <= j_prev2)
+        d_j_ok = d_j_turn_up and (j_curr < 80)
+
+        # 2. Daily DEA turn up
+        # DEA_curr > DEA_prev AND DEA_prev <= DEA_prev2
+        dea_curr = get_val(d_curr, 'MACD_DEA')
+        dea_prev = get_val(d_prev, 'MACD_DEA')
+        dea_prev2 = get_val(d_prev2, 'MACD_DEA')
+
+        d_dea_turn_up = (dea_curr > dea_prev) and (dea_prev <= dea_prev2)
+
+        is_buy = d_j_ok or d_dea_turn_up
+
+        return is_buy
 
     async def run(self, progress_callback=None):
         """执行回测循环 (Async for WebSocket)"""
