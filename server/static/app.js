@@ -68,7 +68,7 @@ async function loadData() {
 
         // Update Title
         const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[currentPeriod];
-        document.getElementById('stockInfo').innerText = `${json.code} - ${periodName} (${json.data.length} bar)`;
+        document.getElementById('stockInfo').innerText = `${json.name || ''} ${json.code} - ${periodName} (${json.data.length} bar)`;
 
     } catch (e) {
         console.error(e);
@@ -237,7 +237,7 @@ async function runScreener() {
 
                 reversedResults.forEach(stock => {
                     html += `<div class="stock-list-item" onclick="selectStock('${stock.code}')">`;
-                    html += `<strong>${stock.code}</strong>`;
+                    html += `<strong>${stock.name || ''} ${stock.code}</strong>`;
                     html += `<span>${stock.date}</span>`;
                     html += `<span>¥${stock.price.toFixed(2)}</span>`;
                     html += `</div>`;
@@ -437,7 +437,7 @@ function renderChart(data, code, period) {
             },
             // KDJ
             { type: 'line', name: 'K', data: kVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1, color: '#fff' } },
-            { type: 'line', name: 'D', data: dVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1, color: '#ffeb3b' } },
+            // { type: 'line', name: 'D', data: dVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1, color: '#ffeb3b' } }, // Hide D
             { type: 'line', name: 'J', data: jVal, xAxisIndex: 3, yAxisIndex: 3, symbol: 'none', lineStyle: { width: 1, color: '#e91e63' } }
         ]
     };
@@ -452,21 +452,9 @@ function renderChart(data, code, period) {
     };
 
     // Add 80/30 lines for KDJ (Red/Green)
-    // Note: series index 6 because we added EMA20 at index 1
-    // Index mapping: 0:KLine, 1:EMA20, 2:Vol, 3:DIF, 4:DEA, 5:MACDBar, 6:K, 7:D, 8:J
+    // Index mapping: 0:KLine, 1:EMA20, 2:Vol, 3:DIF, 4:DEA, 5:MACDBar, 6:K, 7:J (D is removed)
 
-    // Actually let's count properly:
-    // 0: KLine
-    // 1: EMA20
-    // 2: Volume
-    // 3: DIF
-    // 4: DEA
-    // 5: MACD Hist
-    // 6: K
-    // 7: D
-    // 8: J
-
-    option.series[8].markLine = {
+    option.series[7].markLine = {
          symbol: 'none',
          silent: true,
          data: [
@@ -475,7 +463,7 @@ function renderChart(data, code, period) {
          ]
     };
 
-    option.series[8].markPoint = {
+    option.series[7].markPoint = {
         data: jArrowData
     };
 

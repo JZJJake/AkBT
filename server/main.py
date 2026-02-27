@@ -69,8 +69,9 @@ def get_stock_data_api(code: str, period: str = Query('daily', regex='^(daily|we
         try: df_reset['Date'] = df_reset['Date'].dt.strftime('%Y-%m-%d')
         except: df_reset['Date'] = df_reset['Date'].astype(str)
 
+    name = provider.db_manager.get_stock_name(code)
     records = df_reset.to_dict(orient='records')
-    return {"code": code, "period": period, "data": records}
+    return {"code": code, "name": name, "period": period, "data": records}
 
 @app.post("/backtest")
 async def run_backtest(req: BacktestRequest):

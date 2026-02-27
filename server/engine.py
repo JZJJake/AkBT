@@ -35,7 +35,7 @@ class BacktestEngine:
 
     def calculate_indicators(self, df):
         """计算 MACD, KDJ, EMA 指标"""
-        if len(df) < 30: return df
+        if len(df) < 10: return df
 
         # EMA 20
         try:
@@ -96,56 +96,86 @@ class BacktestEngine:
 
     def check_signal_now(self):
         """
-        FAST Screener check (Optimized):
-        Calculates indicators on the *entire* available history once,
-        then checks the signal condition on the LAST available bar.
-
-        Strategy: Condition 3 (Relaxed)
-        - (Daily J turn up < 80) OR (Daily DEA turn up)
+        FAST Screener check:
+        Strategy: Condition 2 OR Condition 3
         """
         if len(self.raw_data) < 50: return False
 
-        # 1. Calculate Daily Indicators (Vectorized, Fast)
+        # --- 1. Daily Indicators ---
         daily_df = self.calculate_indicators(self.raw_data.copy())
-
         if len(daily_df) < 3: return False
-
-        # --- Get Last Bars ---
-        # Note: 'daily_df' contains ALL history. We check the LAST row.
-        # Screener assumes "Today".
 
         d_curr = daily_df.iloc[-1]
         d_prev = daily_df.iloc[-2]
         d_prev2 = daily_df.iloc[-3]
 
-        # --- Logic: Condition 3 (Relaxed) ---
-        # (Daily J turn up & < 80) OR (Daily DEA turn up)
-
         def get_val(row, key, default=0):
-            # Handle potential NaN
             val = row.get(key, default)
             return 0 if pd.isna(val) else val
 
-        # 1. Daily J turn up & < 80
-        # J_curr > J_prev AND J_prev <= J_prev2
+        # --- Condition 3: Daily J Turn Up ---
+        # Modified: Just J turn up
         j_curr = get_val(d_curr, 'J')
         j_prev = get_val(d_prev, 'J')
         j_prev2 = get_val(d_prev2, 'J')
 
-        d_j_turn_up = (j_curr > j_prev) and (j_prev <= j_prev2)
-        d_j_ok = d_j_turn_up and (j_curr < 80)
+        cond3_j_turn_up = (j_curr > j_prev) and (j_prev <= j_prev2)
 
-        # 2. Daily DEA turn up
-        # DEA_curr > DEA_prev AND DEA_prev <= DEA_prev2
-        dea_curr = get_val(d_curr, 'MACD_DEA')
-        dea_prev = get_val(d_prev, 'MACD_DEA')
-        dea_prev2 = get_val(d_prev2, 'MACD_DEA')
+        if cond3_j_turn_up:
+            return True
 
-        d_dea_turn_up = (dea_curr > dea_prev) and (dea_prev <= dea_prev2)
+        # --- Condition 2: Weekly Logic ---
+        # If Cond 3 not met, check Cond 2 (or checking both is same if OR)
 
-        is_buy = d_j_ok or d_dea_turn_up
+        # Resample Weekly
+        weekly_df = self.raw_data.resample('W-FRI').agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+        })
+        weekly_df.dropna(subset=['Close'], inplace=True)
+        weekly_df = self.calculate_indicators(weekly_df)
 
-        return is_buy
+        # Ensure indicators exist
+        if len(weekly_df) < 6 or 'J' not in weekly_df.columns or 'MACD_DIF' not in weekly_df.columns:
+            return False
+
+        w_curr = weekly_df.iloc[-1]
+        w_prev = weekly_df.iloc[-2]
+        w_prev2 = weekly_df.iloc[-3]
+
+        # 1. Weekly DIF > DEA
+        w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
+
+        # 2. Weekly MACD Hist > Prev Hist
+        w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
+
+        # 3. Weekly J Up
+        w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
+
+        # 4. J Logic: (J > Max(last 5)) OR (Slope > Prev Slope)
+        # J Max(last 5) means Max of J[t-5]...J[t-1] ? Or inclusive?
+        # "Greater than peak of last 5 cycles" usually implies breaking a recent high.
+        # I will use shift(1).rolling(5).max()
+
+        # Efficient calculation using pandas series
+        # But here we only need it for the last bar.
+        # Extract last 5 J values (t-5 to t-1)
+        last_j_series = weekly_df['J'].iloc[-6:-1]
+        if len(last_j_series) < 5:
+            w_j_breakout = False
+        else:
+            prev_5_max = last_j_series.max()
+            w_j_breakout = get_val(w_curr, 'J') > prev_5_max
+
+        # Slope Logic
+        slope_curr = get_val(w_curr, 'J') - get_val(w_prev, 'J')
+        slope_prev = get_val(w_prev, 'J') - get_val(w_prev2, 'J')
+        w_j_accel = slope_curr > slope_prev
+
+        w_j_complex = w_j_breakout or w_j_accel
+
+        cond2 = w_dif_gt_dea and w_hist_up and w_j_up and w_j_complex
+
+        return cond2
 
     async def run(self, progress_callback=None):
         """执行回测循环 (Async for WebSocket)"""
@@ -251,25 +281,34 @@ class BacktestEngine:
 
             cond_daily = d_j_ok and d_hist_red
 
-            # --- 综合买入 ---
-            # Strict logic: Monthly + Weekly + Daily
-            # signal_buy = cond_month and cond_week and cond_daily
+            # --- Condition 3: Daily J Turn Up (Modified) ---
+            cond3 = (get_val(d_curr, 'J') > get_val(d_prev, 'J')) and \
+                    (get_val(d_prev, 'J') <= get_val(d_prev2, 'J'))
 
-            # Relaxed Condition 3 ONLY (per user request: "First select Buy Condition 3, this is most common")
-            # Condition 3: (Daily J turn up & < 80) OR (Daily DEA turn up)
+            # --- Condition 2: Weekly Logic ---
+            # 1. Weekly DIF > DEA
+            w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
+            # 2. Hist > Prev Hist
+            w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
+            # 3. J Up
+            w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
 
-            # 1. Daily J turn up & < 80
-            d_j_turn_up = (get_val(d_curr, 'J') > get_val(d_prev, 'J')) and \
-                          (get_val(d_prev, 'J') <= get_val(d_prev2, 'J'))
-            d_j_ok = d_j_turn_up and (get_val(d_curr, 'J') < 80)
+            # 4. J Logic
+            if len(weekly_df) >= 6:
+                last_j_series = weekly_df['J'].iloc[-6:-1]
+                prev_5_max = last_j_series.max()
+                w_j_breakout = get_val(w_curr, 'J') > prev_5_max
+            else:
+                w_j_breakout = False
 
-            # 2. Daily DEA turn up (Current > Prev > Prev2 ? Or just Current > Prev & Prev <= Prev2)
-            d_dea_turn_up = (get_val(d_curr, 'MACD_DEA') > get_val(d_prev, 'MACD_DEA')) and \
-                            (get_val(d_prev, 'MACD_DEA') <= get_val(d_prev2, 'MACD_DEA'))
+            slope_curr = get_val(w_curr, 'J') - get_val(w_prev, 'J')
+            slope_prev = get_val(w_prev, 'J') - get_val(w_prev2, 'J')
+            w_j_accel = slope_curr > slope_prev
 
-            cond_daily_strict = d_j_ok or d_dea_turn_up
+            cond2 = w_dif_gt_dea and w_hist_up and w_j_up and (w_j_breakout or w_j_accel)
 
-            signal_buy = cond_daily_strict
+            # Combined
+            signal_buy = cond3 or cond2
 
             # --- 执行交易 ---
             if signal_buy:

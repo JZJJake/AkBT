@@ -96,10 +96,18 @@ class DataProvider:
         try:
             # 1. Get List via Sina (Robust)
             loop = asyncio.get_event_loop()
-            codes = await loop.run_in_executor(None, fetch_stock_list)
+            stock_list = await loop.run_in_executor(None, fetch_stock_list)
 
-            if not codes:
+            if not stock_list:
                 raise Exception("Failed to fetch stock list from Sina.")
+
+            # Save Names to DB
+            logger.info("Updating stock info (names)...")
+            for item in stock_list:
+                self.db_manager.save_stock_info(item['code'], item['name'])
+
+            # Extract codes
+            codes = [item['code'] for item in stock_list]
 
             self._sync_status["total"] = len(codes)
             logger.info(f"Starting sync for {len(codes)} stocks...")

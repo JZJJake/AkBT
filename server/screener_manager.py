@@ -78,8 +78,10 @@ class ScreenerManager:
 
                     if is_buy:
                         last_row = df.iloc[-1]
+                        name = provider.db_manager.get_stock_name(code)
                         self.found_stocks.append({
                             "code": code,
+                            "name": name,
                             "date": str(last_row.name).split(' ')[0],
                             "price": last_row['Close']
                         })

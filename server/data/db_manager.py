@@ -38,6 +38,15 @@ class DatabaseManager:
         """
         cursor.execute(create_table_sql)
 
+        # Stock Info Table (Code, Name)
+        create_info_table_sql = """
+        CREATE TABLE IF NOT EXISTS stock_info (
+            code TEXT PRIMARY KEY,
+            name TEXT
+        );
+        """
+        cursor.execute(create_info_table_sql)
+
         conn.commit()
         conn.close()
 
@@ -158,5 +167,31 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error checking latest date for {code}: {e}")
             return None
+        finally:
+            conn.close()
+
+    def save_stock_info(self, code: str, name: str):
+        """保存股票基础信息 (名称)"""
+        conn = self.get_connection()
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT OR REPLACE INTO stock_info (code, name) VALUES (?, ?)", (code, name))
+        except Exception as e:
+            logger.error(f"Error saving stock info for {code}: {e}")
+        finally:
+            conn.close()
+
+    def get_stock_name(self, code: str) -> str:
+        """获取股票名称"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM stock_info WHERE code = ?", (code,))
+            result = cursor.fetchone()
+            return result[0] if result else code # Fallback to code if no name
+        except Exception as e:
+            # logger.error(f"Error getting stock name for {code}: {e}")
+            return code
         finally:
             conn.close()

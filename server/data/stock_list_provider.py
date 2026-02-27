@@ -8,13 +8,13 @@ logger = logging.getLogger(__name__)
 def fetch_stock_list_sina():
     """
     Fetches the full list of A-share stock codes from Sina Finance API.
-    Returns a list of strings (e.g., ["000001", "600519", ...]).
+    Returns a list of dicts (e.g., [{"code": "000001", "name": "平安银行"}, ...]).
 
     This method is more reliable than TDX for getting the complete list
     because TDX servers often return partial data or fail for specific markets (SH).
     """
     url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
-    all_codes = []
+    all_stocks = {} # Use dict to dedup by code
     page = 1
     batch_size = 80
     max_retries = 3
@@ -52,12 +52,13 @@ def fetch_stock_list_sina():
                     success = True
                     consecutive_failures = 0
                     # Break the retry loop and also the main loop (end of data)
-                    return sorted(list(set(all_codes))) # Done!
+                    return list(all_stocks.values()) # Done!
 
                 # Extract codes
-                batch_codes = []
+                count = 0
                 for item in data:
                     code = item.get('code')
+                    name = item.get('name')
                     if not code: continue
 
                     # Filter A-shares
@@ -65,12 +66,11 @@ def fetch_stock_list_sina():
                     # SZ: 00xxxx, 30xxxx (ChiNext)
                     # Exclude Beijing (8xx, 4xx, 9xx) & B-shares (900/200)
                     if code.startswith(('60', '68', '00', '30')):
-                        batch_codes.append(code)
-
-                all_codes.extend(batch_codes)
+                        all_stocks[code] = {"code": code, "name": name}
+                        count += 1
 
                 if page % 10 == 0:
-                    logger.info(f"Fetched page {page}, total codes so far: {len(all_codes)}")
+                    logger.info(f"Fetched page {page}, total stocks so far: {len(all_stocks)}")
 
                 success = True
                 consecutive_failures = 0
@@ -94,11 +94,11 @@ def fetch_stock_list_sina():
         page += 1
         time.sleep(0.1)
 
-    # Remove duplicates if any
-    all_codes = sorted(list(set(all_codes)))
+    # Return list
+    result = list(all_stocks.values())
 
-    logger.info(f"Successfully fetched {len(all_codes)} A-share stocks from Sina.")
-    return all_codes
+    logger.info(f"Successfully fetched {len(result)} A-share stocks from Sina.")
+    return result
 
 def fetch_stock_list():
     """
