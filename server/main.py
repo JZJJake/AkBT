@@ -11,6 +11,7 @@ import datetime
 from .data.provider import get_stock_data, trigger_sync, get_sync_progress, provider
 from .engine import BacktestEngine
 from .screener_manager import screener_manager
+from .backtest_manager import backtest_manager
 import asyncio
 
 app = FastAPI()
@@ -24,7 +25,7 @@ async def read_index():
 
 class BacktestRequest(BaseModel):
     code: str
-    start_date: str
+    start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_cash: float = 100000.0
 
@@ -76,7 +77,8 @@ def get_stock_data_api(code: str, period: str = Query('daily', regex='^(daily|we
 @app.post("/backtest")
 async def run_backtest(req: BacktestRequest):
     end_date = req.end_date if req.end_date else datetime.datetime.now().strftime('%Y-%m-%d')
-    df = get_stock_data(req.code, start_date=req.start_date, end_date=end_date)
+    start_date = req.start_date if req.start_date else "1990-01-01"
+    df = get_stock_data(req.code, start_date=start_date, end_date=end_date)
     if df.empty: return {"error": "No data for backtest"}
     engine = BacktestEngine(df)
     engine.cash = req.initial_cash
@@ -114,6 +116,22 @@ def get_screener_status():
         "total": screener_manager.total_stocks,
         "message": screener_manager.message,
         "results": screener_manager.found_stocks
+    }
+
+@app.post("/batch_backtest")
+async def run_batch_backtest():
+    asyncio.create_task(backtest_manager.run_batch_task())
+    return {"status": "started"}
+
+@app.get("/batch_backtest_status")
+def get_batch_backtest_status():
+    return {
+        "status": backtest_manager.status,
+        "progress": backtest_manager.progress,
+        "processed": backtest_manager.processed_count,
+        "total": backtest_manager.total_stocks,
+        "message": backtest_manager.message,
+        "results": backtest_manager.results
     }
 
 if __name__ == "__main__":

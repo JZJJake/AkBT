@@ -65,7 +65,7 @@ async function loadData() {
             return alert("数据格式错误: 缺少 Date 字段");
         }
 
-        renderChart(json.data, json.code, currentPeriod);
+        renderChart(json.data, json.code, currentPeriod, null, json.name || '');
 
         // Update Title
         const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[currentPeriod];
@@ -78,13 +78,20 @@ async function loadData() {
     }
 }
 
+let batchInterval = null;
+
 async function runBacktest() {
-    const code = document.getElementById('stockCode').value;
-    const start = document.getElementById('startDate').value;
-    const end = document.getElementById('endDate').value;
+    const isFull = document.getElementById('isFullMarket').checked;
     const cash = document.getElementById('initialCash').value;
 
-    if (!code || !start) return alert("请输入完整参数");
+    if (isFull) {
+        runBatchBacktest();
+        return;
+    }
+
+    const code = document.getElementById('stockCode').value;
+
+    if (!code) return alert("请输入股票代码");
 
     const resultBox = document.getElementById('backtestResult');
     resultBox.innerHTML = "正在回测...";
@@ -95,8 +102,8 @@ async function runBacktest() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 code: code,
-                start_date: start,
-                end_date: end ? end : null,
+                start_date: null,
+                end_date: null,
                 initial_cash: parseFloat(cash)
             })
         });
@@ -145,7 +152,7 @@ async function runBacktest() {
                 dataArray.sort((a, b) => new Date(a.Date) - new Date(b.Date));
 
                 // Render with backtest results
-                renderChart(dataArray, code, currentPeriod);
+                renderChart(dataArray, code, currentPeriod, json.trades, json.name || '');
 
             } catch (e) {
                 console.error("Error parsing backtest bars:", e);
@@ -281,6 +288,87 @@ async function runScreener() {
     }
 }
 
+async function runBatchBacktest() {
+    const pBox = document.getElementById('batchProgress');
+    const pBar = document.getElementById('batchBar');
+    const pText = document.getElementById('batchStatus');
+    const resBox = document.getElementById('backtestResult');
+
+    pBox.style.display = 'block';
+    resBox.innerHTML = "";
+    pText.innerText = "Initiating Batch Task...";
+
+    try {
+        await fetch('/batch_backtest', { method: 'POST' });
+
+        if (batchInterval) clearInterval(batchInterval);
+
+        batchInterval = setInterval(async () => {
+            const resp = await fetch('/batch_backtest_status');
+            const status = await resp.json();
+
+            pBar.style.width = status.progress + '%';
+            pText.innerText = `${status.message} (${status.processed}/${status.total})`;
+
+            if (status.status === 'completed') {
+                clearInterval(batchInterval);
+                renderBatchResult(status.results);
+            } else if (status.status === 'error') {
+                clearInterval(batchInterval);
+                resBox.innerHTML = "Error: " + status.message;
+            }
+
+        }, 1000);
+
+    } catch (e) {
+        console.error(e);
+        pText.innerText = "Error starting batch task.";
+    }
+}
+
+function renderBatchResult(results) {
+    const resBox = document.getElementById('backtestResult');
+    const stats = results.stats;
+    const equity = results.equity_curve;
+
+    let html = `<h3>全市场回测统计</h3>`;
+    html += `<p>测试股票数: ${stats.total_stocks_tested}</p>`;
+    html += `<p>平均收益率: ${stats.avg_return}</p>`;
+    html += `<p>胜率: ${stats.win_rate}</p>`;
+    html += `<p>平均交易次数: ${stats.avg_trades}</p>`;
+
+    resBox.innerHTML = html;
+
+    renderEquityChart(equity);
+}
+
+function renderEquityChart(data) {
+    if (chartInstance) chartInstance.dispose();
+    const container = document.getElementById('chartContainer');
+    chartInstance = echarts.init(container);
+
+    const dates = data.map(i => i.date);
+    const values = data.map(i => i.value);
+
+    const option = {
+        backgroundColor: '#050505',
+        title: { text: '全市场策略平均净值曲线', left: 'center', textStyle: { color: '#00f3ff', fontFamily: 'Orbitron' } },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross', lineStyle: { color: '#00f3ff' } } },
+        grid: { top: 50, bottom: 30, left: 50, right: 30 },
+        xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#888' } },
+        yAxis: { scale: true, splitLine: { lineStyle: { color: '#222' } }, axisLine: { lineStyle: { color: '#333' } }, axisLabel: { color: '#888' } },
+        series: [{
+            name: 'Strategy Index',
+            type: 'line',
+            data: values,
+            itemStyle: { color: '#ff00ff' },
+            areaStyle: { color: 'rgba(255, 0, 255, 0.1)' },
+            symbol: 'none'
+        }]
+    };
+    chartInstance.setOption(option);
+}
+
 function selectStock(code) {
     document.getElementById('stockCode').value = code;
     loadData();
@@ -319,7 +407,7 @@ window.onclick = function(event) {
     }
 }
 
-function renderChart(data, code, period) {
+function renderChart(data, code, period, trades=null, name='') {
     if (chartInstance) {
         chartInstance.dispose();
     }

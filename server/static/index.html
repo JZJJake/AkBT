@@ -31,18 +31,22 @@
         </div>
         <hr>
         <div class="form-group">
-            <label>回测开始日期:</label>
-            <input type="date" id="startDate" value="2022-01-01">
-        </div>
-        <div class="form-group">
-            <label>回测结束日期:</label>
-            <input type="date" id="endDate" value="">
-        </div>
-        <div class="form-group">
-            <label>初始资金:</label>
+            <label>初始资金 (单只):</label>
             <input type="number" id="initialCash" value="100000">
         </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="isFullMarket" style="width: auto;">
+            <label for="isFullMarket" style="margin: 0; cursor: pointer;">全市场回测统计</label>
+        </div>
         <button class="action-btn" onclick="runBacktest()">执行回测</button>
+
+        <!-- Batch Progress -->
+        <div id="batchProgress" class="progress-container" style="display:none; margin-top: 10px;">
+            <div class="progress-bar">
+                <div id="batchBar" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <div class="progress-text" id="batchStatus">Starting...</div>
+        </div>
 
         <div id="backtestResult" class="result-box">
             <!-- 回测结果显示区域 -->
