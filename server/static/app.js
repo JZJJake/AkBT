@@ -27,6 +27,10 @@ document.addEventListener('mouseup', () => {
     document.body.style.cursor = 'default';
 });
 
+window.globalStockData = null;
+let currentCode = "";
+let currentName = "";
+
 function switchPeriod(period) {
     if (currentPeriod === period) return;
     currentPeriod = period;
@@ -35,19 +39,26 @@ function switchPeriod(period) {
     document.querySelectorAll('.p-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`btn-${period}`).classList.add('active');
 
-    // Reload data with new period
-    loadData();
+    // Use cached if available
+    if (window.globalStockData && currentCode === document.getElementById('stockCode').value) {
+        const periodData = window.globalStockData[currentPeriod];
+        renderChart(periodData, currentCode, currentPeriod, null, currentName);
+
+        const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[currentPeriod];
+        document.getElementById('stockInfo').innerText = `${currentName} ${currentCode} - ${periodName} (${periodData.length} bar)`;
+    } else {
+        loadData();
+    }
 }
 
 async function loadData() {
     const code = document.getElementById('stockCode').value;
     if (!code) return alert("请输入股票代码");
 
-    // Update Stock Info Title (placeholder)
     document.getElementById('stockInfo').innerText = `加载中: ${code}...`;
 
     try {
-        const resp = await fetch(`/data/${code}?period=${currentPeriod}`);
+        const resp = await fetch(`/data/${code}`);
         if (!resp.ok) throw new Error("Fetch failed");
 
         const json = await resp.json();
@@ -56,20 +67,21 @@ async function loadData() {
             return alert(json.error);
         }
 
-        if (!json.data || json.data.length === 0) {
+        window.globalStockData = json.data;
+        currentCode = json.code;
+        currentName = json.name || '';
+
+        const periodData = json.data[currentPeriod];
+
+        if (!periodData || periodData.length === 0) {
             document.getElementById('stockInfo').innerText = "无数据";
             return alert("未获取到数据");
         }
 
-        if (!json.data[0].Date) {
-            return alert("数据格式错误: 缺少 Date 字段");
-        }
+        renderChart(periodData, currentCode, currentPeriod, null, currentName);
 
-        renderChart(json.data, json.code, currentPeriod, null, json.name || '');
-
-        // Update Title
         const periodName = { 'daily': '日线', 'weekly': '周线', 'monthly': '月线' }[currentPeriod];
-        document.getElementById('stockInfo').innerText = `${json.name || ''} ${json.code} - ${periodName} (${json.data.length} bar)`;
+        document.getElementById('stockInfo').innerText = `${currentName} ${currentCode} - ${periodName} (${periodData.length} bar)`;
 
     } catch (e) {
         console.error(e);
@@ -407,6 +419,105 @@ window.onclick = function(event) {
     }
 }
 
+let ttChart1 = null;
+let ttChart2 = null;
+
+function initMiniCharts() {
+    if (!ttChart1) ttChart1 = echarts.init(document.getElementById('ttChart1'));
+    if (!ttChart2) ttChart2 = echarts.init(document.getElementById('ttChart2'));
+}
+
+function updateMiniCharts(hoverDateStr, mainPeriod) {
+    if (!window.globalStockData) return;
+
+    const dData = window.globalStockData.daily || [];
+    const wData = window.globalStockData.weekly || [];
+    const mData = window.globalStockData.monthly || [];
+
+    let chart1Data = [];
+    let chart2Data = [];
+    let title1 = "";
+    let title2 = "";
+
+    const findIndex = (data, targetDate) => {
+        for(let i=0; i<data.length; i++) {
+            if(data[i].Date >= targetDate) return i;
+        }
+        return Math.max(0, data.length - 1);
+    };
+
+    const sliceData = (data, index) => {
+        const start = Math.max(0, index - 5);
+        const end = Math.min(data.length, index + 6);
+        return data.slice(start, end);
+    };
+
+    if (mainPeriod === 'daily') {
+        if(wData.length > 0) {
+            const idx = findIndex(wData, hoverDateStr);
+            chart1Data = sliceData(wData, idx);
+            title1 = "所在周线及前后5周";
+        }
+    } else if (mainPeriod === 'weekly') {
+        if(dData.length > 0) {
+            const idxD = findIndex(dData, hoverDateStr);
+            chart1Data = sliceData(dData, idxD);
+            title1 = "所在日线及前后5日";
+        }
+        if(mData.length > 0) {
+            const idxM = findIndex(mData, hoverDateStr);
+            chart2Data = sliceData(mData, idxM);
+            title2 = "所在月线及前后5月";
+        }
+    } else if (mainPeriod === 'monthly') {
+        if(wData.length > 0) {
+            const idx = findIndex(wData, hoverDateStr);
+            chart1Data = sliceData(wData, idx);
+            title1 = "所在周线及前后5周";
+        }
+    }
+
+    const renderMini = (instance, data, titleStr) => {
+        if (!data || data.length === 0) return;
+        const dates = data.map(i => i.Date.substring(5)); // MM-DD
+        const kline = data.map(i => [i.Open, i.Close, i.Low, i.High]);
+        const macdHist = data.map(i => i.MACD_HIST || 0);
+        const jVal = data.map(i => i.J || 0);
+
+        instance.setOption({
+            backgroundColor: 'transparent',
+            animation: false,
+            title: { text: titleStr, textStyle: {fontSize:10, color:'#00f3ff'}, top: 0, left: 5 },
+            grid: [
+                { top: 20, height: '40%', left: 5, right: 5 },
+                { top: '65%', height: '15%', left: 5, right: 5 },
+                { top: '85%', height: '15%', left: 5, right: 5 }
+            ],
+            xAxis: [
+                { type: 'category', data: dates, gridIndex: 0, show: false },
+                { type: 'category', data: dates, gridIndex: 1, show: false },
+                { type: 'category', data: dates, gridIndex: 2, show: false }
+            ],
+            yAxis: [
+                { scale: true, gridIndex: 0, show: false },
+                { scale: true, gridIndex: 1, show: false },
+                { scale: true, gridIndex: 2, show: false }
+            ],
+            series: [
+                { type: 'candlestick', data: kline, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: '#ff00ff', color0: '#00ff99', borderColor: '#ff00ff', borderColor0: '#00ff99' } },
+                { type: 'bar', data: macdHist, xAxisIndex: 1, yAxisIndex: 1, itemStyle: { color: (p) => p.value > (p.dataIndex>0?macdHist[p.dataIndex-1]:0) ? '#ff00ff' : '#00ff99' } },
+                { type: 'line', data: jVal, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: {width: 1, color: '#e91e63'} }
+            ]
+        });
+    };
+
+    document.getElementById('ttChart1').style.display = chart1Data.length ? 'block' : 'none';
+    document.getElementById('ttChart2').style.display = chart2Data.length ? 'block' : 'none';
+
+    if (chart1Data.length) renderMini(ttChart1, chart1Data, title1);
+    if (chart2Data.length) renderMini(ttChart2, chart2Data, title2);
+}
+
 function renderChart(data, code, period, trades=null, name='') {
     if (chartInstance) {
         chartInstance.dispose();
@@ -511,10 +622,21 @@ function renderChart(data, code, period, trades=null, name='') {
         ],
         tooltip: {
             trigger: 'axis',
-            axisPointer: { type: 'cross' },
-            backgroundColor: 'rgba(50,50,50,0.9)',
-            borderColor: '#555',
-            textStyle: { color: '#fff' }
+            axisPointer: { type: 'cross', lineStyle: { color: '#00f3ff', type: 'dashed' } },
+            backgroundColor: 'rgba(11,12,21,0.95)',
+            borderColor: '#00f3ff',
+            borderWidth: 1,
+            textStyle: { color: '#e0e0e0', fontSize: 12, fontFamily: 'Roboto' },
+            formatter: function (params) {
+                // Simplified Tooltip as requested
+                let res = `<b>${params[0].name}</b><br/>`;
+                params.forEach(param => {
+                    if (param.seriesName === 'KLine') {
+                        res += `O: ${param.data[1]} C: ${param.data[2]}<br/>L: ${param.data[3]} H: ${param.data[4]}`;
+                    }
+                });
+                return res;
+            }
         },
         axisPointer: { link: { xAxisIndex: 'all' } },
         grid: [
@@ -631,4 +753,25 @@ function renderChart(data, code, period, trades=null, name='') {
 
     chartInstance.setOption(option);
     window.onresize = chartInstance.resize;
+
+    // Attach custom tooltip logic
+    chartInstance.on('updateAxisPointer', function (event) {
+        const xAxisInfo = event.axesInfo[0];
+        if (xAxisInfo && xAxisInfo.value != null) {
+            const hoveredIndex = xAxisInfo.value;
+            const dateStr = dates[hoveredIndex];
+
+            const tt = document.getElementById('multiFrameTooltip');
+            tt.style.display = 'block';
+            tt.style.right = '40px';
+            tt.style.top = '60px'; // Position fixed relative to chart container
+
+            initMiniCharts();
+            updateMiniCharts(dateStr, period);
+        }
+    });
+
+    chartInstance.getZr().on('mouseout', function () {
+         document.getElementById('multiFrameTooltip').style.display = 'none';
+    });
 }

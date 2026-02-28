@@ -49,30 +49,46 @@ def resample_data(df: pd.DataFrame, period: str) -> pd.DataFrame:
     return resampled
 
 @app.get("/data/{code}")
-def get_stock_data_api(code: str, period: str = Query('daily', regex='^(daily|weekly|monthly)$')):
+def get_stock_data_api(code: str):
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    start_date = '2020-01-01'
+    start_date = '1990-01-01'
 
     df = get_stock_data(code, start_date=start_date, end_date=end_date)
     if df.empty: return {"error": "No data found"}
 
-    if period != 'daily': df = resample_data(df, period)
-
     engine = BacktestEngine(df)
-    df = engine.calculate_indicators(df)
-    df = df.fillna(0)
 
-    if df.index.name != 'Date': df.index.name = 'Date'
-    df_reset = df.reset_index()
-    if 'Date' not in df_reset.columns:
-         if 'index' in df_reset.columns: df_reset.rename(columns={'index': 'Date'}, inplace=True)
-    if 'Date' in df_reset.columns:
-        try: df_reset['Date'] = df_reset['Date'].dt.strftime('%Y-%m-%d')
-        except: df_reset['Date'] = df_reset['Date'].astype(str)
+    # Compute all 3 timeframes
+    daily_df = engine.calculate_indicators(df.copy()).fillna(0)
+
+    weekly_df = df.resample('W-FRI').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
+    weekly_df = engine.calculate_indicators(weekly_df).fillna(0)
+
+    monthly_df = df.resample('ME').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
+    monthly_df = engine.calculate_indicators(monthly_df).fillna(0)
+
+    def process_df(d):
+        if d.empty: return []
+        if d.index.name != 'Date': d.index.name = 'Date'
+        d_reset = d.reset_index()
+        if 'Date' not in d_reset.columns and 'index' in d_reset.columns:
+            d_reset.rename(columns={'index': 'Date'}, inplace=True)
+        if 'Date' in d_reset.columns:
+            try: d_reset['Date'] = d_reset['Date'].dt.strftime('%Y-%m-%d')
+            except: d_reset['Date'] = d_reset['Date'].astype(str)
+        return d_reset.to_dict(orient='records')
 
     name = provider.db_manager.get_stock_name(code)
-    records = df_reset.to_dict(orient='records')
-    return {"code": code, "name": name, "period": period, "data": records}
+
+    return {
+        "code": code,
+        "name": name,
+        "data": {
+            "daily": process_df(daily_df),
+            "weekly": process_df(weekly_df),
+            "monthly": process_df(monthly_df)
+        }
+    }
 
 @app.post("/backtest")
 async def run_backtest(req: BacktestRequest):
