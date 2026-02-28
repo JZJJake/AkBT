@@ -219,7 +219,7 @@ class BacktestEngine:
         """执行回测循环 (Async for WebSocket)"""
 
         # 1. 计算日线指标 (全量计算，遍历时取值)
-        self.daily_processed = self.calculate_indicators(self.raw_data.copy())
+        self.daily_processed = self.calculate_indicators(self.raw_data.copy()); self.daily_processed = self.daily_processed.loc[:, ~self.daily_processed.columns.duplicated()]
 
         # Calculate Daily XL Slope for Sell Logic
         if 'J' in self.daily_processed.columns:

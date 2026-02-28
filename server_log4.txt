@@ -1,0 +1,94 @@
+INFO:     Started server process [77195]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-02-28 10:13:36,257 - INFO - No data for 000001 in DB. Will fetch full history.
+2026-02-28 10:13:36,257 - INFO - Fetching online data for 000001 (TDX)...
+2026-02-28 10:13:37,142 - INFO - Connected to TDX server: 上证云北京联通一 (123.125.108.14)
+2026-02-28 10:13:41,406 - INFO - Upserting 8317 records for 000001...
+2026-02-28 10:13:41,479 - INFO - Successfully saved data for 000001.
+INFO:     127.0.0.1:43588 - "GET /data/000001 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56382 - "POST /backtest HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/uvicorn/protocols/http/h11_impl.py", line 410, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/fastapi/applications.py", line 1160, in __call__
+    await super().__call__(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/fastapi/routing.py", line 119, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/fastapi/routing.py", line 105, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/fastapi/routing.py", line 431, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/fastapi/routing.py", line 313, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/server/main.py", line 101, in run_backtest
+    result = await engine.run()
+             ^^^^^^^^^^^^^^^^^^
+  File "/app/server/engine.py", line 388, in run
+    "bars": self.daily_processed.to_json(orient='index', date_format='iso'),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pandas/core/generic.py", line 2635, in to_json
+    return json.to_json(
+           ^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pandas/io/json/_json.py", line 231, in to_json
+    s = writer(
+        ^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pandas/io/json/_json.py", line 285, in __init__
+    self._format_axes()
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pandas/io/json/_json.py", line 349, in _format_axes
+    raise ValueError(
+ValueError: DataFrame columns must be unique for orient='index'.
+INFO:     127.0.0.1:33286 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33286 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33298 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33298 - "POST /backtest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60248 - "GET /data/000001 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43656 - "GET /data/000001 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52190 - "POST /sync_data HTTP/1.1" 200 OK
+2026-02-28 11:10:38,618 - INFO - Fetching full stock list from Sina Finance...
+2026-02-28 11:10:43,622 - WARNING - System syncing, returning local data for 000001.
+INFO:     127.0.0.1:48464 - "GET /data/000001 HTTP/1.1" 200 OK
+2026-02-28 11:10:49,175 - INFO - Fetched page 10, total stocks so far: 505
+2026-02-28 11:10:58,924 - INFO - Fetched page 20, total stocks so far: 1305
+2026-02-28 11:11:21,772 - WARNING - Error fetching page 29 (Attempt 1): HTTPConnectionPool(host='vip.stock.finance.sina.com.cn', port=80): Max retries exceeded with url: /quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=29&num=80&sort=symbol&asc=1&node=hs_a&symbol= (Caused by ConnectTimeoutError(<HTTPConnection(host='vip.stock.finance.sina.com.cn', port=80) at 0x7f62c153e210>, 'Connection to vip.stock.finance.sina.com.cn timed out. (connect timeout=15)'))
+2026-02-28 11:11:38,792 - WARNING - Error fetching page 29 (Attempt 2): HTTPConnectionPool(host='vip.stock.finance.sina.com.cn', port=80): Max retries exceeded with url: /quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=29&num=80&sort=symbol&asc=1&node=hs_a&symbol= (Caused by ConnectTimeoutError(<HTTPConnection(host='vip.stock.finance.sina.com.cn', port=80) at 0x7f62c27351f0>, 'Connection to vip.stock.finance.sina.com.cn timed out. (connect timeout=15)'))
+2026-02-28 11:11:53,015 - INFO - Fetched page 30, total stocks so far: 2105
+2026-02-28 11:12:02,704 - INFO - Fetched page 40, total stocks so far: 2905
+2026-02-28 11:12:13,178 - INFO - Fetched page 50, total stocks so far: 3705
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [77195]

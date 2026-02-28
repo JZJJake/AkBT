@@ -117,7 +117,7 @@ class TdxFetcher:
                 data = []
                 start = 0
                 # Fetch up to 5 batches (approx 4-5 years)
-                for i in range(5):
+                for i in range(15):
                     bars = self.api.get_security_bars(9, market, code, start, 800)
                     if not bars: break
                     data = bars + data
