@@ -429,6 +429,46 @@ function renderChart(data, code, period, trades=null, name='') {
     const dVal = data.map(item => item.D || 0);
     const jVal = data.map(item => item.J || 0);
 
+    // Generate Mark Points for Buy/Sell
+    const markPointData = [];
+    if (trades && trades.length > 0) {
+        trades.forEach(t => {
+            const isBuy = t.action === 'buy';
+            markPointData.push({
+                name: isBuy ? 'Buy' : 'Sell',
+                coord: [t.date, t.price],
+                value: isBuy ? 'B' : 'S',
+                itemStyle: { color: isBuy ? '#ff00ff' : '#00ff99' }, // Neon Pink for Buy, Green for Sell
+                symbol: 'arrow',
+                symbolRotate: isBuy ? 0 : 180,
+                symbolSize: 12,
+                symbolOffset: isBuy ? [0, 15] : [0, -15],
+                label: {
+                    color: '#fff',
+                    fontWeight: 'bold',
+                    formatter: '{c}'
+                }
+            });
+        });
+    } else {
+        // Fallback for simple data view
+        data.forEach((item, index) => {
+            if (item.buy_signal) {
+                markPointData.push({
+                    name: 'Buy',
+                    coord: [item.Date, item.Low * 0.98],
+                    value: 'B',
+                    itemStyle: { color: '#ff00ff' },
+                    symbol: 'arrow',
+                    symbolRotate: 0,
+                    symbolSize: 10,
+                    symbolOffset: [0, 10],
+                    label: { color: '#fff', formatter: '{c}' }
+                });
+            }
+        });
+    }
+
     // KDJ J-Turn Arrow Logic
     // Condition: J < 50 AND J(t) > J(t-1) AND J(t-1) <= J(t-2)
     const jArrowData = [];
@@ -508,27 +548,13 @@ function renderChart(data, code, period, trades=null, name='') {
                 xAxisIndex: 0,
                 yAxisIndex: 0,
                 itemStyle: {
-                    color: '#FD1050',
-                    color0: '#0CF49B',
-                    borderColor: '#FD1050',
-                    borderColor0: '#0CF49B'
+                    color: '#ff00ff', // Cyberpunk Pink (Fall)
+                    color0: '#00ff99', // Cyberpunk Green (Rise)
+                    borderColor: '#ff00ff',
+                    borderColor0: '#00ff99'
                 },
                 markPoint: {
-                    data: (data.map((item, index) => {
-                        if (item.buy_signal) {
-                            return {
-                                name: 'Buy',
-                                coord: [index, item.Low * 0.98],
-                                value: 'B',
-                                itemStyle: { color: '#e91e63' },
-                                symbolOffset: [0, 10]
-                            };
-                        }
-                        return null;
-                    })).filter(item => item !== null),
-                    symbol: 'arrow',
-                    symbolRotate: 0, // Point Up
-                    symbolSize: 10
+                    data: markPointData
                 }
             },
             // EMA20
