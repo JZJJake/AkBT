@@ -438,6 +438,8 @@ function updateMiniCharts(hoverDateStr, mainPeriod) {
     let chart2Data = [];
     let title1 = "";
     let title2 = "";
+    let c1Center = -1;
+    let c2Center = -1;
 
     const findIndex = (data, targetDate) => {
         for(let i=0; i<data.length; i++) {
@@ -456,33 +458,52 @@ function updateMiniCharts(hoverDateStr, mainPeriod) {
         if(wData.length > 0) {
             const idx = findIndex(wData, hoverDateStr);
             chart1Data = sliceData(wData, idx);
+            c1Center = idx - Math.max(0, idx - 5);
             title1 = "所在周线及前后5周";
         }
     } else if (mainPeriod === 'weekly') {
         if(dData.length > 0) {
             const idxD = findIndex(dData, hoverDateStr);
             chart1Data = sliceData(dData, idxD);
+            c1Center = idxD - Math.max(0, idxD - 5);
             title1 = "所在日线及前后5日";
         }
         if(mData.length > 0) {
             const idxM = findIndex(mData, hoverDateStr);
             chart2Data = sliceData(mData, idxM);
+            c2Center = idxM - Math.max(0, idxM - 5);
             title2 = "所在月线及前后5月";
         }
     } else if (mainPeriod === 'monthly') {
         if(wData.length > 0) {
             const idx = findIndex(wData, hoverDateStr);
             chart1Data = sliceData(wData, idx);
+            c1Center = idx - Math.max(0, idx - 5);
             title1 = "所在周线及前后5周";
         }
     }
 
-    const renderMini = (instance, data, titleStr) => {
+    const renderMini = (instance, data, titleStr, centerIdx) => {
         if (!data || data.length === 0) return;
         const dates = data.map(i => i.Date.substring(5)); // MM-DD
         const kline = data.map(i => [i.Open, i.Close, i.Low, i.High]);
         const macdHist = data.map(i => i.MACD_HIST || 0);
         const jVal = data.map(i => i.J || 0);
+
+        const series = [
+            { type: 'candlestick', data: kline, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: '#ff00ff', color0: '#00ff99', borderColor: '#ff00ff', borderColor0: '#00ff99' } },
+            { type: 'bar', data: macdHist, xAxisIndex: 1, yAxisIndex: 1, itemStyle: { color: (p) => p.value > (p.dataIndex>0?macdHist[p.dataIndex-1]:0) ? '#ff00ff' : '#00ff99' } },
+            { type: 'line', data: jVal, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: {width: 1, color: '#e91e63'} }
+        ];
+
+        if (centerIdx >= 0) {
+            series[0].markLine = {
+                symbol: 'none',
+                silent: true,
+                data: [{ xAxis: centerIdx }],
+                lineStyle: { type: 'dashed', color: '#fff', width: 1, opacity: 0.7 }
+            };
+        }
 
         instance.setOption({
             backgroundColor: 'transparent',
@@ -503,19 +524,15 @@ function updateMiniCharts(hoverDateStr, mainPeriod) {
                 { scale: true, gridIndex: 1, show: false },
                 { scale: true, gridIndex: 2, show: false }
             ],
-            series: [
-                { type: 'candlestick', data: kline, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: '#ff00ff', color0: '#00ff99', borderColor: '#ff00ff', borderColor0: '#00ff99' } },
-                { type: 'bar', data: macdHist, xAxisIndex: 1, yAxisIndex: 1, itemStyle: { color: (p) => p.value > (p.dataIndex>0?macdHist[p.dataIndex-1]:0) ? '#ff00ff' : '#00ff99' } },
-                { type: 'line', data: jVal, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: {width: 1, color: '#e91e63'} }
-            ]
+            series: series
         });
     };
 
     document.getElementById('ttChart1').style.display = chart1Data.length ? 'block' : 'none';
     document.getElementById('ttChart2').style.display = chart2Data.length ? 'block' : 'none';
 
-    if (chart1Data.length) renderMini(ttChart1, chart1Data, title1);
-    if (chart2Data.length) renderMini(ttChart2, chart2Data, title2);
+    if (chart1Data.length) renderMini(ttChart1, chart1Data, title1, c1Center);
+    if (chart2Data.length) renderMini(ttChart2, chart2Data, title2, c2Center);
 }
 
 function renderChart(data, code, period, trades=null, name='') {
@@ -763,8 +780,25 @@ function renderChart(data, code, period, trades=null, name='') {
 
             const tt = document.getElementById('multiFrameTooltip');
             tt.style.display = 'block';
-            tt.style.right = '40px';
             tt.style.top = '60px'; // Position fixed relative to chart container
+
+            // Dodge Mouse
+            const zoomOpt = chartInstance.getOption().dataZoom[0];
+            const startPct = zoomOpt.start;
+            const endPct = zoomOpt.end;
+            const startIdx = Math.floor(dates.length * startPct / 100);
+            const endIdx = Math.ceil(dates.length * endPct / 100);
+            const visibleMid = (startIdx + endIdx) / 2;
+
+            if (hoveredIndex > visibleMid) {
+                // Mouse on right half, put tooltip on left
+                tt.style.right = 'auto';
+                tt.style.left = '80px';
+            } else {
+                // Mouse on left half, put tooltip on right
+                tt.style.left = 'auto';
+                tt.style.right = '40px';
+            }
 
             initMiniCharts();
             updateMiniCharts(dateStr, period);
