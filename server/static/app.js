@@ -448,9 +448,11 @@ function updateMiniCharts(hoverDateStr, mainPeriod) {
         return Math.max(0, data.length - 1);
     };
 
+    const LOOKBACK = 20; // Show 41 bars total
+
     const sliceData = (data, index) => {
-        const start = Math.max(0, index - 5);
-        const end = Math.min(data.length, index + 6);
+        const start = Math.max(0, index - LOOKBACK);
+        const end = Math.min(data.length, index + LOOKBACK + 1);
         return data.slice(start, end);
     };
 
@@ -458,42 +460,52 @@ function updateMiniCharts(hoverDateStr, mainPeriod) {
         if(wData.length > 0) {
             const idx = findIndex(wData, hoverDateStr);
             chart1Data = sliceData(wData, idx);
-            c1Center = idx - Math.max(0, idx - 5);
-            title1 = "所在周线及前后5周";
+            c1Center = idx - Math.max(0, idx - LOOKBACK);
+            title1 = `所在周线及前后${LOOKBACK}周`;
         }
     } else if (mainPeriod === 'weekly') {
         if(dData.length > 0) {
             const idxD = findIndex(dData, hoverDateStr);
             chart1Data = sliceData(dData, idxD);
-            c1Center = idxD - Math.max(0, idxD - 5);
-            title1 = "所在日线及前后5日";
+            c1Center = idxD - Math.max(0, idxD - LOOKBACK);
+            title1 = `所在日线及前后${LOOKBACK}日`;
         }
         if(mData.length > 0) {
             const idxM = findIndex(mData, hoverDateStr);
             chart2Data = sliceData(mData, idxM);
-            c2Center = idxM - Math.max(0, idxM - 5);
-            title2 = "所在月线及前后5月";
+            c2Center = idxM - Math.max(0, idxM - LOOKBACK);
+            title2 = `所在月线及前后${LOOKBACK}月`;
         }
     } else if (mainPeriod === 'monthly') {
         if(wData.length > 0) {
             const idx = findIndex(wData, hoverDateStr);
             chart1Data = sliceData(wData, idx);
-            c1Center = idx - Math.max(0, idx - 5);
-            title1 = "所在周线及前后5周";
+            c1Center = idx - Math.max(0, idx - LOOKBACK);
+            title1 = `所在周线及前后${LOOKBACK}周`;
         }
     }
 
     const renderMini = (instance, data, titleStr, centerIdx) => {
         if (!data || data.length === 0) return;
-        const dates = data.map(i => i.Date.substring(5)); // MM-DD
+        const dates = data.map(i => i.Date);
         const kline = data.map(i => [i.Open, i.Close, i.Low, i.High]);
+
         const macdHist = data.map(i => i.MACD_HIST || 0);
+        const macdDif = data.map(i => i.MACD_DIF || 0);
+        const macdDea = data.map(i => i.MACD_DEA || 0);
+
+        const kVal = data.map(i => i.K || 0);
+        const dVal = data.map(i => i.D || 0);
         const jVal = data.map(i => i.J || 0);
 
         const series = [
             { type: 'candlestick', data: kline, xAxisIndex: 0, yAxisIndex: 0, itemStyle: { color: '#ff00ff', color0: '#00ff99', borderColor: '#ff00ff', borderColor0: '#00ff99' } },
             { type: 'bar', data: macdHist, xAxisIndex: 1, yAxisIndex: 1, itemStyle: { color: (p) => p.value > (p.dataIndex>0?macdHist[p.dataIndex-1]:0) ? '#ff00ff' : '#00ff99' } },
-            { type: 'line', data: jVal, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: {width: 1, color: '#e91e63'} }
+            { type: 'line', data: macdDif, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 1, color: '#fff' } },
+            { type: 'line', data: macdDea, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 1, color: '#ffeb3b' } },
+            { type: 'line', data: kVal, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 1, color: '#fff' } },
+            { type: 'line', data: dVal, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 1, color: '#ffeb3b' } },
+            { type: 'line', data: jVal, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 1, color: '#e91e63' } }
         ];
 
         if (centerIdx >= 0) {
@@ -501,26 +513,26 @@ function updateMiniCharts(hoverDateStr, mainPeriod) {
                 symbol: 'none',
                 silent: true,
                 data: [{ xAxis: centerIdx }],
-                lineStyle: { type: 'dashed', color: '#fff', width: 1, opacity: 0.7 }
+                lineStyle: { type: 'dashed', color: '#00f3ff', width: 1, opacity: 0.8 }
             };
         }
 
         instance.setOption({
             backgroundColor: 'transparent',
             animation: false,
-            title: { text: titleStr, textStyle: {fontSize:10, color:'#00f3ff'}, top: 0, left: 5 },
+            title: { text: titleStr, textStyle: {fontSize:12, color:'#00f3ff'}, top: 0, left: 30 },
             grid: [
-                { top: 20, height: '40%', left: 5, right: 5 },
-                { top: '65%', height: '15%', left: 5, right: 5 },
-                { top: '85%', height: '15%', left: 5, right: 5 }
+                { top: 25, height: '40%', left: 35, right: 10 },
+                { top: '68%', height: '15%', left: 35, right: 10 },
+                { top: '85%', height: '10%', left: 35, right: 10 }
             ],
             xAxis: [
                 { type: 'category', data: dates, gridIndex: 0, show: false },
                 { type: 'category', data: dates, gridIndex: 1, show: false },
-                { type: 'category', data: dates, gridIndex: 2, show: false }
+                { type: 'category', data: dates, gridIndex: 2, show: true, axisLabel: { fontSize: 9, color: '#888', formatter: (val) => val.substring(5) } }
             ],
             yAxis: [
-                { scale: true, gridIndex: 0, show: false },
+                { scale: true, gridIndex: 0, show: true, axisLabel: { fontSize: 9, color: '#666', formatter: '{value}' }, splitLine: { show: false } },
                 { scale: true, gridIndex: 1, show: false },
                 { scale: true, gridIndex: 2, show: false }
             ],
