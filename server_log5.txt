@@ -10,3 +10,20 @@ INFO:     127.0.0.1:56320 - "GET /static/app.js HTTP/1.1" 200 OK
 2026-02-28 11:21:27,769 - INFO - Connected to TDX server: 上证云北京联通一 (123.125.108.14)
 2026-02-28 11:21:31,933 - INFO - Upserting 8317 records for 000001...
 2026-02-28 11:21:31,963 - INFO - Successfully saved data for 000001.
+INFO:     127.0.0.1:56320 - "POST /backtest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46164 - "GET /data/000001 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57796 - "POST /sync_data HTTP/1.1" 200 OK
+2026-02-28 12:14:22,851 - INFO - Fetching full stock list from Sina Finance...
+2026-02-28 12:14:27,846 - WARNING - System syncing, returning local data for 000001.
+INFO:     127.0.0.1:37316 - "GET /data/000001 HTTP/1.1" 200 OK
+2026-02-28 12:14:33,614 - INFO - Fetched page 10, total stocks so far: 505
+2026-02-28 12:14:43,354 - INFO - Fetched page 20, total stocks so far: 1305
+2026-02-28 12:14:53,144 - INFO - Fetched page 30, total stocks so far: 2105
+2026-02-28 12:15:10,189 - WARNING - Error fetching page 33 (Attempt 1): HTTPConnectionPool(host='vip.stock.finance.sina.com.cn', port=80): Max retries exceeded with url: /quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=33&num=80&sort=symbol&asc=1&node=hs_a&symbol= (Caused by ConnectTimeoutError(<HTTPConnection(host='vip.stock.finance.sina.com.cn', port=80) at 0x7fda051ca960>, 'Connection to vip.stock.finance.sina.com.cn timed out. (connect timeout=15)'))
+2026-02-28 12:15:39,537 - INFO - Fetched page 40, total stocks so far: 2905
+2026-02-28 12:15:50,960 - INFO - Fetched page 50, total stocks so far: 3705
+2026-02-28 12:16:02,016 - INFO - Fetched page 60, total stocks so far: 4505
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88628]
