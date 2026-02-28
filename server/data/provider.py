@@ -26,12 +26,12 @@ class DataProvider:
         self.is_syncing = False
         self.last_full_sync = None
 
-    def get_data(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
+    def get_data(self, code: str, start_date: str, end_date: str, force_update: bool = False) -> pd.DataFrame:
         """
         获取股票数据 (优先查询数据库，过期或缺失则调用 TDX 更新)。
         """
         # Lock protection during sync
-        if self.is_syncing:
+        if self.is_syncing and not force_update:
             logger.warning(f"System syncing, returning local data for {code}.")
             return self.db_manager.get_stock_data(code, start_date, end_date)
 
@@ -39,11 +39,11 @@ class DataProvider:
         last_check = self._last_update_check.get(code)
 
         need_db_check = True
-        if last_check and (now - last_check) < self.UPDATE_COOLDOWN:
+        if not force_update and last_check and (now - last_check) < self.UPDATE_COOLDOWN:
             logger.debug(f"Skipping update check for {code} (Cached)")
             need_db_check = False
 
-        need_update = False
+        need_update = force_update
 
         if need_db_check:
             latest_date_str = self.db_manager.get_latest_date(code)
@@ -166,8 +166,8 @@ class DataProvider:
 # 全局单例
 provider = DataProvider()
 
-def get_stock_data(code, start_date, end_date):
-    return provider.get_data(code, start_date, end_date)
+def get_stock_data(code, start_date, end_date, force_update=False):
+    return provider.get_data(code, start_date, end_date, force_update=force_update)
 
 async def trigger_sync():
     asyncio.create_task(provider.sync_all_stocks_task())

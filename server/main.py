@@ -49,11 +49,11 @@ def resample_data(df: pd.DataFrame, period: str) -> pd.DataFrame:
     return resampled
 
 @app.get("/data/{code}")
-def get_stock_data_api(code: str):
+def get_stock_data_api(code: str, force_update: bool = False):
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
     start_date = '1990-01-01'
 
-    df = get_stock_data(code, start_date=start_date, end_date=end_date)
+    df = get_stock_data(code, start_date=start_date, end_date=end_date, force_update=force_update)
     if df.empty: return {"error": "No data found"}
 
     engine = BacktestEngine(df)

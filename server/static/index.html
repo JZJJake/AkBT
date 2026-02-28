@@ -27,7 +27,10 @@
         <div class="form-group">
             <label>股票代码:</label>
             <input type="text" id="stockCode" value="000001" placeholder="例如 000001">
-            <button class="action-btn" onclick="loadData()">加载数据</button>
+            <div style="display: flex; gap: 5px; margin-top: 5px;">
+                <button class="action-btn" onclick="loadData()" style="flex: 1;">加载数据</button>
+                <button class="action-btn" onclick="forceUpdateData()" style="flex: 1; background-color: #d9534f;">强制更新</button>
+            </div>
         </div>
         <hr>
         <div class="form-group">

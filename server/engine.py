@@ -148,13 +148,15 @@ class BacktestEngine:
         d_prev2 = daily_df.iloc[-3]
 
         # --- Condition 3: Daily Reversal ---
-        # J Turn Up AND J < 80
+        # j值上拐且j值小于80
         j_curr = get_val(d_curr, 'J')
         j_prev = get_val(d_prev, 'J')
         j_prev2 = get_val(d_prev2, 'J')
-
         d_j_turn_up = (j_curr > j_prev) and (j_prev <= j_prev2)
-        cond3 = d_j_turn_up and (j_curr < 80)
+        # macd 柱子值大于前一柱子值
+        d_hist_up = get_val(d_curr, 'MACD_HIST') > get_val(d_prev, 'MACD_HIST')
+
+        cond3 = d_j_turn_up and (j_curr < 80) and d_hist_up
 
         if not cond3: return False
 
@@ -171,22 +173,14 @@ class BacktestEngine:
         w_curr = weekly_df.iloc[-1]
         w_prev = weekly_df.iloc[-2]
 
-        # 1. DIF > DEA
+        # macd的快线在慢线上方
         w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
-        # 2. Hist > Prev Hist
-        w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
-        # 3. J Up
+        # kdj的J线向上
         w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
-        # 4. Slope Accel
-        w_xl_series = self.calculate_slope_xl(weekly_df['J'])
-        if len(w_xl_series) >= 2:
-            w_xl_curr = w_xl_series.iloc[-1]
-            w_xl_prev = w_xl_series.iloc[-2]
-            w_j_accel = w_xl_curr > w_xl_prev
-        else:
-            w_j_accel = False
+        # macd柱子值大于前一柱子值
+        w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
 
-        cond2 = w_dif_gt_dea and w_hist_up and w_j_up and w_j_accel
+        cond2 = w_dif_gt_dea and w_j_up and w_hist_up
 
         if not cond2: return False
 
@@ -243,6 +237,9 @@ class BacktestEngine:
         # Start after enough data
         start_idx = 50
 
+        def get_val(row, key, default=0):
+            return row[key] if key in row else default
+
         for i in range(start_idx, total_steps):
             current_date = trade_dates[i]
 
@@ -254,6 +251,8 @@ class BacktestEngine:
             d_curr = self.daily_processed.iloc[i]
             d_prev = self.daily_processed.iloc[i-1]
             d_prev2 = self.daily_processed.iloc[i-2]
+
+            signal_buy = False
 
             # --- 动态计算周/月线 ---
             lookback = 100 # Optimize speed
@@ -268,8 +267,10 @@ class BacktestEngine:
             if len(monthly_df) > lookback: monthly_df = monthly_df.iloc[-lookback:]
             monthly_df = self.calculate_indicators(monthly_df)
 
-            if len(weekly_df) < 3 or 'J' not in weekly_df.columns: continue
-            if len(monthly_df) < 3 or 'J' not in monthly_df.columns: continue
+            if len(weekly_df) < 3 or 'J' not in weekly_df.columns:
+                continue
+            if len(monthly_df) < 3 or 'J' not in monthly_df.columns:
+                continue
 
             # 提取最后几行
             w_curr = weekly_df.iloc[-1]
@@ -278,44 +279,42 @@ class BacktestEngine:
             m_curr = monthly_df.iloc[-1]
             m_prev = monthly_df.iloc[-2]
 
-            # --- 策略条件判断 ---
-            def get_val(row, key, default=0):
-                return row[key] if key in row else default
-
             # --- Condition 3: Daily Reversal ---
-            # J Turn Up AND J < 80
-            d_j_turn_up = (get_val(d_curr, 'J') > get_val(d_prev, 'J')) and \
-                          (get_val(d_prev, 'J') <= get_val(d_prev2, 'J'))
-            cond3 = d_j_turn_up and (get_val(d_curr, 'J') < 80)
+            # j值上拐且j值小于80
+            j_curr = get_val(d_curr, 'J')
+            j_prev = get_val(d_prev, 'J')
+            j_prev2 = get_val(d_prev2, 'J')
+            d_j_turn_up = (j_curr > j_prev) and (j_prev <= j_prev2)
+            # macd 柱子值大于前一柱子值
+            d_hist_up = get_val(d_curr, 'MACD_HIST') > get_val(d_prev, 'MACD_HIST')
 
-            # --- Condition 2: Weekly Trend ---
-            # 1. DIF > DEA
-            w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
-            # 2. Hist > Prev Hist
-            w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
-            # 3. J Up
-            w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
-            # 4. XL Slope Accel
-            w_xl_series = self.calculate_slope_xl(weekly_df['J'])
-            if len(w_xl_series) >= 2:
-                w_j_accel = w_xl_series.iloc[-1] > w_xl_series.iloc[-2]
-            else:
-                w_j_accel = False
+            cond3 = d_j_turn_up and (j_curr < 80) and d_hist_up
 
-            cond2 = w_dif_gt_dea and w_hist_up and w_j_up and w_j_accel
+            if cond3:
+                # --- Condition 2: Weekly Trend ---
+                # macd的快线在慢线上方
+                w_dif_gt_dea = get_val(w_curr, 'MACD_DIF') > get_val(w_curr, 'MACD_DEA')
+                # kdj的J线向上
+                w_j_up = get_val(w_curr, 'J') > get_val(w_prev, 'J')
+                # macd柱子值大于前一柱子值
+                w_hist_up = get_val(w_curr, 'MACD_HIST') > get_val(w_prev, 'MACD_HIST')
 
-            # --- Condition 1: Monthly Trend ---
-            # 1. DIF > DEA
-            m_dif_gt_dea = get_val(m_curr, 'MACD_DIF') > get_val(m_curr, 'MACD_DEA')
-            # 2. Hist > Prev Hist
-            m_hist_up = get_val(m_curr, 'MACD_HIST') > get_val(m_prev, 'MACD_HIST')
-            # 3. J Up
-            m_j_up = get_val(m_curr, 'J') > get_val(m_prev, 'J')
+                cond2 = w_dif_gt_dea and w_j_up and w_hist_up
 
-            cond1 = m_dif_gt_dea and m_hist_up and m_j_up
+                if cond2:
+                    # --- Condition 1: Monthly Trend ---
+                    # macd的快线在慢线上方
+                    m_dif_gt_dea = get_val(m_curr, 'MACD_DIF') > get_val(m_curr, 'MACD_DEA')
+                    # kdj的J线向上且小于80
+                    m_j_up = get_val(m_curr, 'J') > get_val(m_prev, 'J')
+                    m_j_lt_80 = get_val(m_curr, 'J') < 80
+                    # macd柱子值大于前一柱子值
+                    m_hist_up = get_val(m_curr, 'MACD_HIST') > get_val(m_prev, 'MACD_HIST')
 
-            # Combined (Strict AND)
-            signal_buy = cond1 and cond2 and cond3
+                    cond1 = m_dif_gt_dea and m_j_up and m_j_lt_80 and m_hist_up
+
+                    # Combined (Strict AND)
+                    signal_buy = cond1 and cond2 and cond3
 
             # --- 执行交易 ---
             if signal_buy:
@@ -331,6 +330,7 @@ class BacktestEngine:
                     self.position = 1
                     self.entry_price = price
                     self.entry_date = current_date
+                    self.entry_xl = get_val(d_curr, 'XL')
 
                     self.trades.append({
                         "action": "buy",
@@ -349,14 +349,9 @@ class BacktestEngine:
                     should_sell = True
                     sell_reason = "Stop Loss"
                 else:
-                    # Signal Sell: J Down OR XL < Prev XL * 0.8
-                    j_down = get_val(d_curr, 'J') < get_val(d_prev, 'J')
-
+                    # Signal Sell: 日线下kdj的j值上升斜率低于买入时j值斜率的80%，则卖出
                     xl_curr = get_val(d_curr, 'XL')
-                    xl_prev = get_val(d_prev, 'XL')
-                    xl_weak = xl_curr < (xl_prev * 0.8)
-
-                    if j_down or xl_weak:
+                    if xl_curr < self.entry_xl * 0.8:
                         should_sell = True
                         sell_reason = "Signal Sell"
 

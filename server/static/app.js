@@ -51,14 +51,14 @@ function switchPeriod(period) {
     }
 }
 
-async function loadData() {
+async function loadData(forceUpdate = false) {
     const code = document.getElementById('stockCode').value;
     if (!code) return alert("请输入股票代码");
 
-    document.getElementById('stockInfo').innerText = `加载中: ${code}...`;
+    document.getElementById('stockInfo').innerText = forceUpdate ? `强制更新中: ${code}...` : `加载中: ${code}...`;
 
     try {
-        const resp = await fetch(`/data/${code}`);
+        const resp = await fetch(`/data/${code}?force_update=${forceUpdate}`);
         if (!resp.ok) throw new Error("Fetch failed");
 
         const json = await resp.json();
@@ -820,4 +820,8 @@ function renderChart(data, code, period, trades=null, name='') {
     chartInstance.getZr().on('mouseout', function () {
          document.getElementById('multiFrameTooltip').style.display = 'none';
     });
+}
+
+function forceUpdateData() {
+    loadData(true);
 }
