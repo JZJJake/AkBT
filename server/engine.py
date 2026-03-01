@@ -148,7 +148,7 @@ class BacktestEngine:
         d_prev2 = daily_df.iloc[-3]
 
         # --- Condition 3: Daily Reversal ---
-        # j值上拐且j值小于80
+        # j值上拐且j值小于50
         j_curr = get_val(d_curr, 'J')
         j_prev = get_val(d_prev, 'J')
         j_prev2 = get_val(d_prev2, 'J')
@@ -156,7 +156,7 @@ class BacktestEngine:
         # macd 柱子值大于前一柱子值
         d_hist_up = get_val(d_curr, 'MACD_HIST') > get_val(d_prev, 'MACD_HIST')
 
-        cond3 = d_j_turn_up and (j_curr < 80) and d_hist_up
+        cond3 = d_j_turn_up and (j_curr < 50) and d_hist_up
 
         if not cond3: return False
 
@@ -280,7 +280,7 @@ class BacktestEngine:
             m_prev = monthly_df.iloc[-2]
 
             # --- Condition 3: Daily Reversal ---
-            # j值上拐且j值小于80
+            # j值上拐且j值小于50
             j_curr = get_val(d_curr, 'J')
             j_prev = get_val(d_prev, 'J')
             j_prev2 = get_val(d_prev2, 'J')
@@ -288,7 +288,7 @@ class BacktestEngine:
             # macd 柱子值大于前一柱子值
             d_hist_up = get_val(d_curr, 'MACD_HIST') > get_val(d_prev, 'MACD_HIST')
 
-            cond3 = d_j_turn_up and (j_curr < 80) and d_hist_up
+            cond3 = d_j_turn_up and (j_curr < 50) and d_hist_up
 
             if cond3:
                 # --- Condition 2: Weekly Trend ---
